@@ -1,0 +1,23 @@
+{
+  "name": "wisploc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local web UI for processing long audio/video files on weak devices",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@prisma/client": "^6.3.0",
+    "prisma": "^6.3.0",
+    "typescript": "^5.7.0"
+  }
+}

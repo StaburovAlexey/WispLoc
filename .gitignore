@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+*.db
+*.tsbuildinfo
+*.d.ts.map
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
+apps/web/vite.config.js.map
+.turbo
+coverage/
+.wisploc/
