@@ -97,11 +97,7 @@ async function runSetupStep(step: SetupStep, emit: SetupEventEmitter): Promise<v
         const ollamaBin = resolveLocalBinary('ollama')
         const { stdout } = await execa(ollamaBin, ['list'], { timeout: 10_000 })
         if (!stdout.includes(DEFAULTS.llmModel)) {
-          emit({ type: 'step-progress', step, progress: 50, message: `Pulling ${DEFAULTS.llmModel}…` })
-          await execa(ollamaBin, ['pull', DEFAULTS.llmModel], {
-            env: { OLLAMA_HOST: config.ollamaHost },
-            timeout: 600_000,
-          })
+          await pullOllamaModel(ollamaBin, DEFAULTS.llmModel, config.ollamaHost, step, emit)
           emit({ type: 'step-progress', step, progress: 100, message: `${DEFAULTS.llmModel} pulled` })
         }
       } catch (err: any) {
@@ -120,6 +116,72 @@ async function runSetupStep(step: SetupStep, emit: SetupEventEmitter): Promise<v
     case 'doctor':
       // Deep check — just a summary that everything passed
       break
+  }
+}
+
+async function pullOllamaModel(
+  ollamaBin: string,
+  model: string,
+  ollamaHost: string,
+  step: SetupStep,
+  emit: SetupEventEmitter,
+): Promise<void> {
+  let lastMessage = `Pulling ${model}…`
+  let lastBytes = 0
+  let lastProgress = 50
+  const startedAt = Date.now()
+  const emitHeartbeat = async () => {
+    const bytes = await getOllamaPartialDownloadBytes()
+    lastBytes = Math.max(lastBytes, bytes)
+    emit({
+      type: 'step-progress',
+      step,
+      progress: lastProgress,
+      downloadedBytes: lastBytes || undefined,
+      message: lastBytes > 0
+        ? `${lastMessage} Downloaded ${formatBytes(lastBytes)} so far.`
+        : `${lastMessage} Still waiting for Ollama registry…`,
+    })
+  }
+
+  emit({ type: 'step-progress', step, progress: lastProgress, message: lastMessage })
+  const heartbeat = setInterval(() => {
+    void emitHeartbeat()
+  }, 15_000)
+  let lastOutputEmitAt = 0
+
+  try {
+    const subprocess = execa(ollamaBin, ['pull', model], {
+      env: { OLLAMA_HOST: ollamaHost },
+      timeout: 1_800_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+
+    const handleOutput = (chunk: Buffer) => {
+      const text = chunk.toString('utf8').replace(/\s+/g, ' ').trim()
+      if (!text) return
+      lastMessage = summarizeOllamaPullOutput(text)
+      lastProgress = parseOllamaPullProgress(lastMessage) ?? lastProgress
+      const now = Date.now()
+      if (now - lastOutputEmitAt < 5_000) return
+      lastOutputEmitAt = now
+      emit({ type: 'step-progress', step, progress: lastProgress, message: lastMessage })
+    }
+
+    subprocess.stdout?.on('data', handleOutput)
+    subprocess.stderr?.on('data', handleOutput)
+    await subprocess
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+    emit({
+      type: 'step-progress',
+      step,
+      progress: Math.max(lastProgress, 95),
+      downloadedBytes: lastBytes || undefined,
+      message: `Finished Ollama pull command after ${elapsedSeconds}s`,
+    })
+  } finally {
+    clearInterval(heartbeat)
   }
 }
 
@@ -383,6 +445,50 @@ async function getFileSize(filePath: string): Promise<number> {
   } catch {
     return 0
   }
+}
+
+async function getOllamaPartialDownloadBytes(): Promise<number> {
+  const blobsDir = path.join(os.homedir(), '.ollama', 'models', 'blobs')
+  try {
+    const entries = await fsp.readdir(blobsDir, { withFileTypes: true })
+    let total = 0
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.includes('-partial')) continue
+      total += await getFileSize(path.join(blobsDir, entry.name))
+    }
+    return total
+  } catch {
+    return 0
+  }
+}
+
+function summarizeOllamaPullOutput(value: string): string {
+  const normalized = value
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!normalized) return `Pulling ${DEFAULTS.llmModel}…`
+  return normalized.length > 180 ? `${normalized.slice(0, 179)}…` : normalized
+}
+
+function parseOllamaPullProgress(value: string): number | null {
+  const match = value.match(/(\d{1,3})%/)
+  if (!match) return null
+  const percentage = Number(match[1])
+  if (!Number.isFinite(percentage)) return null
+  return Math.min(99, Math.max(1, percentage))
+}
+
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`
 }
 
 async function extractArchive(archivePath: string, extractDir: string): Promise<void> {
