@@ -58,18 +58,48 @@ export async function jobsRoutes(app: FastifyInstance) {
     })
 
     const send = (event: JobProgressEvent) => {
-      reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
+      if (!reply.raw.destroyed) {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
+      }
     }
 
     const unsubscribe = subscribeToJob(id, send)
+    let lastPayload = ''
+    let closed = false
+
+    const sendCurrentState = async () => {
+      const job = await getJob(id)
+      if (!job) return
+
+      const event: JobProgressEvent = {
+        jobId: job.id,
+        type: job.type,
+        status: job.status,
+        progress: job.progress,
+        currentStep: job.currentStep ?? undefined,
+        error: job.errorMessage ?? undefined,
+      }
+      const payload = JSON.stringify(event)
+      if (payload !== lastPayload) {
+        lastPayload = payload
+        send(event)
+      }
+    }
+
+    await sendCurrentState()
+    const poll = setInterval(() => {
+      sendCurrentState().catch(() => {})
+    }, 1_000)
 
     req.raw.on('close', () => {
+      closed = true
       unsubscribe()
+      clearInterval(poll)
     })
 
     // Keep alive
     const keepAlive = setInterval(() => {
-      reply.raw.write(': keepalive\n\n')
+      if (!closed && !reply.raw.destroyed) reply.raw.write(': keepalive\n\n')
     }, 15_000)
 
     req.raw.on('close', () => {

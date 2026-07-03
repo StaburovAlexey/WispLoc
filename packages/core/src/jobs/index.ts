@@ -144,6 +144,9 @@ function toDto(record: any): ProcessingJobDto {
     progress: record.progress,
     currentStep: record.currentStep,
     errorMessage: record.errorMessage,
+    startedAt: record.startedAt?.toISOString() ?? null,
+    finishedAt: record.finishedAt?.toISOString() ?? null,
+    durationMs: record.durationMs ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }

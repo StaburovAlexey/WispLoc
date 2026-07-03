@@ -5,7 +5,7 @@
   "description": "Local web UI for processing long audio/video files on weak devices",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "concurrently --kill-others-on-fail --names api,worker,web --prefix-colors blue,magenta,green \"pnpm --filter @wisploc/api dev\" \"pnpm --filter @wisploc/worker dev\" \"pnpm --filter @wisploc/web dev\"",
+    "dev": "pnpm --filter @wisploc/web build && concurrently --kill-others-on-fail --names api,worker,web --prefix-colors blue,magenta,green \"pnpm --filter @wisploc/api dev\" \"pnpm --filter @wisploc/worker dev\" \"pnpm --filter @wisploc/web dev\"",
     "dev:all": "pnpm -r dev",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",

@@ -1,5 +1,18 @@
 import type { ReactNode } from 'react'
-import { Button, Card, CardBody, CardHeader, Chip, Divider, Spinner } from '@heroui/react'
+import { Link as RouterLink, useLocation } from 'react-router-dom'
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  Divider,
+  Navbar,
+  NavbarBrand,
+  NavbarContent,
+  NavbarItem,
+  Spinner,
+} from '@heroui/react'
 
 interface PageShellProps {
   title: string
@@ -18,7 +31,8 @@ const WIDTH_CLASS = {
 
 export function PageShell({ title, subtitle, eyebrow, actions, children, width = 'lg' }: PageShellProps) {
   return (
-    <main data-theme="dark" className="dark min-h-screen min-w-[1180px] bg-background text-foreground p-8">
+    <main data-theme="dark" className="dark min-h-screen min-w-[1180px] bg-background text-foreground">
+      <AppTopBar />
       <div className={`mx-auto ${WIDTH_CLASS[width]}`}>
         <Card radius="sm" className="overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between p-6">
@@ -38,6 +52,48 @@ export function PageShell({ title, subtitle, eyebrow, actions, children, width =
         </Card>
       </div>
     </main>
+  )
+}
+
+const NAV_ITEMS = [
+  { label: 'Setup', href: '/setup' },
+  { label: 'Dashboard', href: '/dashboard' },
+  { label: 'Media', href: '/media' },
+  { label: 'Integrations', href: '/integrations' },
+  { label: 'Settings', href: '/settings' },
+]
+
+export function AppTopBar() {
+  const location = useLocation()
+
+  return (
+    <Navbar
+      maxWidth="xl"
+      className="mb-8 border-b border-divider bg-background"
+      classNames={{ wrapper: 'min-w-[1180px] px-8' }}
+    >
+      <NavbarBrand>
+        <p className="font-semibold">WispLoc</p>
+      </NavbarBrand>
+      <NavbarContent justify="end">
+        {NAV_ITEMS.map((item) => {
+          const active = location.pathname === item.href || (item.href !== '/setup' && location.pathname.startsWith(`${item.href}/`))
+          return (
+            <NavbarItem key={item.href} isActive={active}>
+              <Button
+                as={RouterLink}
+                to={item.href}
+                color={active ? 'primary' : 'default'}
+                variant={active ? 'flat' : 'light'}
+                radius="sm"
+              >
+                {item.label}
+              </Button>
+            </NavbarItem>
+          )
+        })}
+      </NavbarContent>
+    </Navbar>
   )
 }
 
@@ -67,9 +123,5 @@ export function EmptyState({ title, description, action }: { title: string; desc
 }
 
 export function BackButton() {
-  return (
-    <Button variant="flat" radius="sm" onPress={() => window.history.back()}>
-      Back
-    </Button>
-  )
+  return null
 }
