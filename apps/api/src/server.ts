@@ -14,6 +14,7 @@ import { summaryRoutes } from './routes/summary'
 import { tasksRoutes } from './routes/tasks'
 import { integrationRoutes } from './routes/integrations'
 import { settingsRoutes } from './routes/settings'
+import { maintenanceRoutes } from './routes/maintenance'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -60,6 +61,7 @@ export async function createServer() {
   await app.register(tasksRoutes)     // paths are fully qualified
   await app.register(integrationRoutes) // paths are fully qualified
   await app.register(settingsRoutes)   // paths are fully qualified
+  await app.register(maintenanceRoutes) // paths are fully qualified
 
   // Serve the React web build (production)
   const webDist = findWebDist()
@@ -67,7 +69,6 @@ export async function createServer() {
     await app.register(fastifyStatic, {
       root: webDist,
       prefix: '/',
-      wildcard: false,
     })
 
     app.setNotFoundHandler(async (req, reply) => {

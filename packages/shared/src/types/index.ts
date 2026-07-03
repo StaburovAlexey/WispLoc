@@ -51,8 +51,10 @@ export interface WispLocConfig {
   ollamaHost: string
   llmModel: string
   language: string
+  summaryLanguage: string
   chunkMinutes: number
   cleanChunks: boolean
+  deleteOriginalAfterProcessing: boolean
   setupCompleted: boolean
 }
 
@@ -215,6 +217,9 @@ export interface ProcessingJobDto {
   progress: number
   currentStep: string | null
   errorMessage: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  durationMs: number | null
   createdAt: string
   updatedAt: string
 }

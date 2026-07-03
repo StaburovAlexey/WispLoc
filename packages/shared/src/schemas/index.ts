@@ -24,8 +24,10 @@ export const wispLocConfigSchema = z.object({
   ollamaHost: z.string().default('http://127.0.0.1:11434'),
   llmModel: z.string().default('qwen3:4b'),
   language: z.string().default('ru'),
+  summaryLanguage: z.string().default('ru'),
   chunkMinutes: z.number().int().min(1).default(5),
   cleanChunks: z.boolean().default(true),
+  deleteOriginalAfterProcessing: z.boolean().default(false),
   setupCompleted: z.boolean().default(false),
 })
 

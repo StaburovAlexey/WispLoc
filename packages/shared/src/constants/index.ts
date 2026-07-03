@@ -34,8 +34,10 @@ export const DEFAULT_CONFIG: WispLocConfig = {
   ollamaHost: 'http://127.0.0.1:11434',
   llmModel: 'qwen3:4b',
   language: 'ru',
+  summaryLanguage: 'ru',
   chunkMinutes: 5,
   cleanChunks: true,
+  deleteOriginalAfterProcessing: false,
   setupCompleted: false,
 }
 

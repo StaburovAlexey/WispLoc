@@ -7,7 +7,9 @@ import type { SetupEvent, SetupStep } from '@wisploc/shared'
 import { PATHS, DEFAULTS } from '@wisploc/shared'
 import { ensureDirectories, fileExists } from '../filesystem'
 import { getDatabaseUrl, loadConfig, saveConfig } from '../config'
+import { writeManagedOllamaPid } from '../ollama/runtime'
 import { ensureDatabaseEnv, getPrisma } from '../database'
+import { installWhisperModel } from '../whisper/models'
 
 export type SetupEventEmitter = (event: SetupEvent) => void
 let cancelRequested = false
@@ -186,12 +188,11 @@ async function pullOllamaModel(
 }
 
 async function ensureWhisperModel(emit: SetupEventEmitter, step: SetupStep): Promise<void> {
-  const modelPath = path.join(PATHS.whisper, 'ggml-base.bin')
+  const modelPath = path.join(PATHS.whisper, DEFAULTS.whisperModel)
   if (fileExists(modelPath)) return
 
-  const url = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'
   emit({ type: 'step-progress', step, progress: 1, message: 'Downloading ggml-base.bin…' })
-  await downloadFile(url, modelPath, step, emit)
+  await installWhisperModel('base')
   emit({ type: 'step-progress', step, progress: 100, message: 'ggml-base.bin downloaded' })
 }
 
@@ -315,6 +316,7 @@ async function ensureOllama(emit: SetupEventEmitter, step: SetupStep): Promise<v
     if (!downloadedOllama) throw new Error('Ollama archive did not contain ollama binary')
     await fsp.mkdir(PATHS.bin, { recursive: true })
     await fsp.copyFile(downloadedOllama, ollamaBin)
+    await copyOllamaRuntimeLibraries(extractDir)
     await chmodExecutable(ollamaBin)
     await fsp.rm(archivePath, { force: true })
   } else if (process.platform === 'win32') {
@@ -332,6 +334,7 @@ async function ensureOllama(emit: SetupEventEmitter, step: SetupStep): Promise<v
     if (!downloadedOllama) throw new Error('Ollama archive did not contain ollama.exe')
     await fsp.mkdir(PATHS.bin, { recursive: true })
     await fsp.copyFile(downloadedOllama, ollamaBin)
+    await copyOllamaRuntimeLibraries(extractDir)
     await chmodExecutable(ollamaBin)
     await fsp.rm(archivePath, { force: true })
     await fsp.rm(extractDir, { recursive: true, force: true })
@@ -350,11 +353,26 @@ async function ensureOllamaServer(command: string): Promise<boolean> {
 
   try {
     const child = execa(command, ['serve'], { detached: true, stdio: 'ignore' })
+    writeManagedOllamaPid(child.pid)
     child.unref()
     await sleep(3000)
   } catch {}
 
   return binaryWorks(command, ['list'], 10_000)
+}
+
+async function copyOllamaRuntimeLibraries(extractDir: string): Promise<void> {
+  const sourceDir = findDirectory(extractDir, (dirPath) => path.basename(dirPath) === 'ollama' && path.basename(path.dirname(dirPath)) === 'lib')
+  if (!sourceDir) return
+
+  const destinationDir = path.join(PATHS.home, 'lib', 'ollama')
+  await fsp.rm(destinationDir, { recursive: true, force: true })
+  await fsp.mkdir(path.dirname(destinationDir), { recursive: true })
+  await fsp.cp(sourceDir, destinationDir, { recursive: true })
+
+  for (const filePath of findFiles(destinationDir, () => true)) {
+    await chmodExecutable(filePath)
+  }
 }
 
 async function binaryWorks(
@@ -534,6 +552,18 @@ function findFile(root: string, fileName: string): string | null {
       const nested = findFile(fullPath, fileName)
       if (nested) return nested
     }
+  }
+  return null
+}
+
+function findDirectory(root: string, predicate: (dirPath: string) => boolean): string | null {
+  const entries = fs.readdirSync(root, { withFileTypes: true })
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name)
+    if (!entry.isDirectory()) continue
+    if (predicate(fullPath)) return fullPath
+    const nested = findDirectory(fullPath, predicate)
+    if (nested) return nested
   }
   return null
 }
