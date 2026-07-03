@@ -3,6 +3,7 @@
  *
  * Runs inside the worker process. Called when a PENDING job is claimed.
  */
+import fs from 'node:fs/promises'
 import {
   getMediaRecordRaw,
   updateMediaDuration,
@@ -23,8 +24,10 @@ import {
   summarizeFinal,
   saveChunkSummary,
   saveFinalSummary,
+  getChunkSummaries,
   saveExtractedTasks,
   getJob,
+  loadConfig,
 } from '@wisploc/core'
 
 export async function runPipeline(mediaId: string, jobId: string): Promise<void> {
@@ -49,7 +52,8 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   let dbChunks = await listChunksByMedia(mediaId)
   if (dbChunks.length === 0) {
     const chunksDir = await getChunksDir(mediaId)
-    const chunkSeconds = 300
+    const config = loadConfig()
+    const chunkSeconds = Math.max(60, Math.round(config.chunkMinutes * 60))
     const chunks = await extractChunks(record.sourcePath, chunksDir, chunkSeconds)
 
     await createChunksBatch(
@@ -57,7 +61,7 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
         mediaFileId: mediaId,
         index: c.index,
         startSec: c.startSec,
-        endSec: c.endSec,
+        endSec: probe.durationSec ? Math.min(c.endSec, probe.durationSec) : c.endSec,
         audioPath: c.audioPath,
       })),
     )
@@ -76,7 +80,11 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   for (let i = 0; i < totalChunks; i++) {
     await throwIfCancelled(jobId)
     const chunk = dbChunks[i]
-    if (chunk.status === 'DONE') continue // resume support
+    if (chunk.status === 'DONE') {
+      const existingTranscript = await getChunkTranscriptText(chunk.id)
+      if (existingTranscript.trim()) continue // resume support
+      await updateChunkStatus(chunk.id, 'PENDING')
+    }
 
     await updateChunkStatus(chunk.id, 'PROCESSING')
     await updateJobProgress(jobId, {
@@ -86,6 +94,9 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
 
     try {
       const result = await transcribeChunk(chunk.audioPath)
+      if (result.segments.length === 0 || !result.text.trim()) {
+        throw new Error('whisper-cli produced no transcript segments')
+      }
       await saveSegments({
         mediaFileId: mediaId,
         chunkId: chunk.id,
@@ -95,7 +106,7 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
           end: chunk.startSec + segment.end,
         })),
       })
-      const transcriptPath = await saveRawTranscript(mediaId, chunk.index, JSON.stringify(result))
+      const transcriptPath = await saveRawTranscript(mediaId, chunk.index, result.rawOutput)
       await updateChunkTranscriptPath(chunk.id, transcriptPath)
       await updateChunkStatus(chunk.id, 'DONE')
     } catch (err: any) {
@@ -109,12 +120,19 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   await updateJobProgress(jobId, { progress: 80, currentStep: 'summarizing' })
   await updateMediaStatus(mediaId, 'SUMMARIZING')
 
-  // 4. Summarize each chunk transcript (skip failed chunks)
+  // 4. Summarize each chunk transcript. Existing chunk summaries are reused per chunk.
+  const existingChunkSummaries = await loadExistingChunkSummariesByIndex(mediaId)
   const chunkSummaries: Awaited<ReturnType<typeof summarizeChunk>>[] = []
   for (let i = 0; i < totalChunks; i++) {
     await throwIfCancelled(jobId)
     const chunk = dbChunks[i]
     if (chunk.status !== 'DONE') continue
+
+    const existingSummary = existingChunkSummaries.get(chunk.index)
+    if (existingSummary) {
+      chunkSummaries.push(existingSummary)
+      continue
+    }
 
     await updateJobProgress(jobId, {
       progress: 80 + Math.round((i / totalChunks) * 8),
@@ -126,11 +144,14 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       if (chunkTranscript) {
         const cs = await summarizeChunk(chunkTranscript, chunk.index, chunk.startSec, chunk.endSec)
         chunkSummaries.push(cs)
+        existingChunkSummaries.set(chunk.index, cs)
         await saveChunkSummary(mediaId, cs)
+      } else {
+        throw new Error(`Chunk ${chunk.index} has no transcript text`)
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`[summarize] Chunk ${chunk.index} failed:`, err)
-      throw new Error(`Summary failed for chunk ${chunk.index}`)
+      throw new Error(`Summary failed for chunk ${chunk.index}: ${err.message ?? String(err)}`)
     }
   }
 
@@ -159,8 +180,45 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   await updateJobProgress(jobId, { progress: 98, currentStep: 'finalizing' })
 
   // 6. Done
+  await deleteOriginalIfConfigured(record.sourcePath)
   await updateMediaStatus(mediaId, 'DONE')
   await updateJobProgress(jobId, { status: 'DONE', progress: 100, currentStep: 'done' })
+}
+
+async function deleteOriginalIfConfigured(sourcePath: string): Promise<void> {
+  const config = loadConfig()
+  if (!config.deleteOriginalAfterProcessing) return
+
+  try {
+    await fs.rm(sourcePath, { force: true })
+  } catch (err) {
+    console.warn(`[worker] Failed to delete original uploaded file: ${err}`)
+  }
+}
+
+async function loadExistingChunkSummariesByIndex(
+  mediaId: string,
+): Promise<Map<number, Awaited<ReturnType<typeof summarizeChunk>>>> {
+  const existing = await getChunkSummaries(mediaId)
+  const chunkSummaries = existing.filter((summary) => summary.kind === 'chunk')
+  const byIndex = new Map<number, Awaited<ReturnType<typeof summarizeChunk>>>()
+
+  for (const summary of chunkSummaries) {
+    const chunkIndex = typeof summary.chunkIndex === 'number' ? summary.chunkIndex : byIndex.size
+    byIndex.set(chunkIndex, {
+      chunkIndex,
+      startSec: 0,
+      endSec: 0,
+      summary: summary.shortSummary ?? '',
+      keyPoints: summary.keyPoints,
+      decisions: summary.decisions,
+      risks: summary.risks,
+      openQuestions: summary.openQuestions,
+      actionItems: summary.actionItems,
+    })
+  }
+
+  return byIndex
 }
 
 async function throwIfCancelled(jobId: string): Promise<void> {

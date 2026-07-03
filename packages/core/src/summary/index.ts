@@ -11,7 +11,7 @@ export async function saveChunkSummary(
   const record = await prisma.summary.create({
     data: {
       mediaFileId,
-      kind: 'chunk',
+      kind: `chunk:${summary.chunkIndex}`,
       shortSummary: summary.summary,
       keyPointsJson: JSON.stringify(summary.keyPoints),
       decisionsJson: JSON.stringify(summary.decisions),
@@ -59,7 +59,13 @@ export async function getLatestSummary(mediaFileId: string) {
 /** Get all chunk summaries for a media file. */
 export async function getChunkSummaries(mediaFileId: string) {
   const records = await prisma.summary.findMany({
-    where: { mediaFileId, kind: 'chunk' },
+    where: {
+      mediaFileId,
+      OR: [
+        { kind: 'chunk' },
+        { kind: { startsWith: 'chunk:' } },
+      ],
+    },
     orderBy: { createdAt: 'asc' },
   })
   return records.map(summaryRecordToDto)
@@ -77,9 +83,11 @@ function parseJsonSafe(s: string | null): any {
 }
 
 function summaryRecordToDto(record: any) {
+  const chunkIndex = parseChunkIndex(record.kind)
   return {
     id: record.id,
-    kind: record.kind,
+    kind: record.kind.startsWith('chunk:') ? 'chunk' : record.kind,
+    chunkIndex,
     shortSummary: record.shortSummary,
     detailedSummary: record.detailedSummary,
     keyPoints: parseJsonSafe(record.keyPointsJson) ?? [],
@@ -90,4 +98,10 @@ function summaryRecordToDto(record: any) {
     modelName: record.modelName,
     createdAt: record.createdAt.toISOString(),
   }
+}
+
+function parseChunkIndex(kind: string): number | null {
+  if (!kind.startsWith('chunk:')) return null
+  const value = Number(kind.slice('chunk:'.length))
+  return Number.isInteger(value) && value >= 0 ? value : null
 }

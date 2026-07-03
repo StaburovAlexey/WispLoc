@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import { loadConfig } from '../config'
 
@@ -11,6 +12,7 @@ export interface WhisperSegment {
 export interface WhisperResult {
   text: string
   segments: WhisperSegment[]
+  rawOutput: string
 }
 
 /**
@@ -48,7 +50,9 @@ export async function transcribeChunk(
     stdout = result.stdout
   }
 
-  return parseWhisperOutput(stdout, wavPath)
+  const fileOutput = await readWhisperJsonOutput(wavPath)
+  const rawOutput = fileOutput || stdout
+  return parseWhisperOutput(rawOutput, wavPath)
 }
 
 /**
@@ -58,45 +62,90 @@ export async function transcribeChunk(
  * We extract the text and any segment-level data.
  */
 function parseWhisperOutput(stdout: string, wavPath: string): WhisperResult {
-  const lines = stdout.trim().split('\n')
+  const trimmed = stdout.trim()
   const segments: WhisperSegment[] = []
   let fullText = ''
 
-  for (const line of lines) {
+  if (!trimmed) {
+    return { text: '', segments: [], rawOutput: stdout }
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    const parsedSegments = parseWhisperJsonObject(parsed)
+    return {
+      text: parsedSegments.map((segment) => segment.text).join(' '),
+      segments: parsedSegments,
+      rawOutput: stdout,
+    }
+  } catch {}
+
+  for (const line of trimmed.split('\n')) {
     try {
       const parsed = JSON.parse(line)
-      // whisper.cpp output formats vary by version; handle common shapes
-      if (parsed.text) {
-        const start = parsed.offsets?.from_ms
-          ? parsed.offsets.from_ms / 1000
-          : parsed.t0
-            ? parsed.t0 * 0.01 // whisper.cpp uses 10ms tokens
-            : segments.length > 0
-              ? segments[segments.length - 1].end
-              : 0
-
-        const end = parsed.offsets?.to_ms
-          ? parsed.offsets.to_ms / 1000
-          : parsed.t1
-            ? parsed.t1 * 0.01
-            : start + 1
-
-        segments.push({
-          start,
-          end,
-          text: parsed.text.trim(),
-        })
-        fullText += (fullText ? ' ' : '') + parsed.text.trim()
+      const parsedSegments = parseWhisperJsonObject(parsed)
+      for (const segment of parsedSegments) {
+        segments.push(segment)
+        fullText += (fullText ? ' ' : '') + segment.text
       }
-    } catch {
-      // Non-JSON line (e.g., log output) — skip
-    }
+    } catch {}
   }
 
   return {
     text: fullText,
     segments,
+    rawOutput: stdout,
   }
+}
+
+function parseWhisperJsonObject(parsed: any): WhisperSegment[] {
+  const items = Array.isArray(parsed?.transcription)
+    ? parsed.transcription
+    : Array.isArray(parsed?.segments)
+      ? parsed.segments
+      : parsed?.text
+        ? [parsed]
+        : []
+
+  return items
+    .map((item: any, index: number) => {
+      const text = String(item.text ?? '').trim()
+      if (!text) return null
+
+      const start = numberOrNull(item.offsets?.from_ms) !== null
+        ? Number(item.offsets.from_ms) / 1000
+        : numberOrNull(item.offsets?.from) !== null
+          ? Number(item.offsets.from) / 1000
+          : numberOrNull(item.t0) !== null
+            ? Number(item.t0) * 0.01
+            : numberOrNull(item.start) ?? index
+
+      const end = numberOrNull(item.offsets?.to_ms) !== null
+        ? Number(item.offsets.to_ms) / 1000
+        : numberOrNull(item.offsets?.to) !== null
+          ? Number(item.offsets.to) / 1000
+          : numberOrNull(item.t1) !== null
+            ? Number(item.t1) * 0.01
+            : numberOrNull(item.end) ?? start + 1
+
+      return { start, end, text }
+    })
+    .filter((segment: WhisperSegment | null): segment is WhisperSegment => segment !== null)
+}
+
+function numberOrNull(value: unknown): number | null {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+async function readWhisperJsonOutput(wavPath: string): Promise<string | null> {
+  const candidates = [`${wavPath}.json`, `${wavPath}.txt.json`]
+  for (const candidate of candidates) {
+    try {
+      return await fs.readFile(candidate, 'utf-8')
+    } catch {}
+  }
+  return null
 }
 
 /** Check if whisper-cli is available. */
