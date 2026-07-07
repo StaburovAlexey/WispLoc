@@ -22,6 +22,7 @@ import {
   getChunkTranscriptText,
   summarizeChunk,
   summarizeFinal,
+  extractFinalTasks,
   saveChunkSummary,
   saveFinalSummary,
   getChunkSummaries,
@@ -164,13 +165,20 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   // 5. Final summary + extract tasks
   try {
     const finalSummary = await summarizeFinal(chunkSummaries)
-    await saveFinalSummary(mediaId, finalSummary)
 
     await updateJobProgress(jobId, { progress: 93, currentStep: 'extracting_tasks' })
     await updateMediaStatus(mediaId, 'EXTRACTING_TASKS')
 
-    if (finalSummary.actionItems.length > 0) {
-      await saveExtractedTasks(mediaId, finalSummary.actionItems)
+    const actionItems = await extractFinalTasks(finalSummary, chunkSummaries)
+    const summaryWithTasks = {
+      ...finalSummary,
+      actionItems,
+    }
+
+    await saveFinalSummary(mediaId, summaryWithTasks)
+
+    if (actionItems.length > 0) {
+      await saveExtractedTasks(mediaId, actionItems)
     }
   } catch (err: any) {
     console.error('[summarize] Final summary failed:', err)

@@ -5,18 +5,9 @@ import { LoadingPage, PageShell } from './PageShell'
 interface SettingsData {
   language: string
   summaryLanguage: string
-  chunkMinutes: number
   cleanChunks: boolean
   deleteOriginalAfterProcessing: boolean
   ollamaHost: string
-  llmModel: string
-}
-
-interface LocalModel {
-  name: string
-  id: string
-  size: string
-  modified: string
 }
 
 interface WhisperModel {
@@ -67,9 +58,6 @@ const MAINTENANCE_ACTIONS: MaintenanceAction[] = [
 
 export function SettingsPage() {
   const [form, setForm] = useState<SettingsData | null>(null)
-  const [llmModels, setLlmModels] = useState<LocalModel[]>([])
-  const [loadingLlmModels, setLoadingLlmModels] = useState(false)
-  const [llmModelsError, setLlmModelsError] = useState<string | null>(null)
   const [whisperModels, setWhisperModels] = useState<WhisperModel[]>([])
   const [loadingWhisperModels, setLoadingWhisperModels] = useState(false)
   const [installingWhisperModel, setInstallingWhisperModel] = useState<string | null>(null)
@@ -87,22 +75,6 @@ export function SettingsPage() {
       const res = await fetch('/api/settings')
       setForm(await res.json())
     } catch {}
-  }, [])
-
-  const loadLlmModels = useCallback(async () => {
-    setLoadingLlmModels(true)
-    setLlmModelsError(null)
-
-    try {
-      const res = await fetch('/api/settings/llm-models')
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error ?? 'Failed to load local models')
-      setLlmModels(body)
-    } catch (err: any) {
-      setLlmModelsError(err.message ?? 'Failed to load local models')
-    } finally {
-      setLoadingLlmModels(false)
-    }
   }, [])
 
   const loadWhisperModels = useCallback(async () => {
@@ -123,9 +95,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     loadSettings()
-    loadLlmModels()
     loadWhisperModels()
-  }, [loadSettings, loadLlmModels, loadWhisperModels])
+  }, [loadSettings, loadWhisperModels])
 
   const handleSave = async () => {
     if (!form) return
@@ -201,18 +172,6 @@ export function SettingsPage() {
 
   if (!form) return <LoadingPage label="Settings" />
 
-  const modelOptions = llmModels.some((model) => model.name === form.llmModel)
-    ? llmModels
-    : [
-        {
-          name: form.llmModel,
-          id: 'configured',
-          size: 'configured',
-          modified: '',
-        },
-        ...llmModels,
-      ]
-
   return (
     <PageShell
       title="Settings"
@@ -245,58 +204,12 @@ export function SettingsPage() {
             <SelectItem key="en">English (en)</SelectItem>
           </Select>
 
-          <Select
-            label="Chunk size"
-            radius="sm"
-            selectedKeys={[String(form.chunkMinutes)]}
-            onSelectionChange={(keys) => setForm({ ...form, chunkMinutes: Number(Array.from(keys)[0] ?? 5) })}
-          >
-            <SelectItem key="3">3 minutes</SelectItem>
-            <SelectItem key="5">5 minutes (default)</SelectItem>
-            <SelectItem key="10">10 minutes</SelectItem>
-            <SelectItem key="15">15 minutes</SelectItem>
-          </Select>
-
           <Input
             label="Ollama host"
             radius="sm"
             value={form.ollamaHost}
             onValueChange={(value) => setForm({ ...form, ollamaHost: value })}
           />
-
-          <div className="flex gap-2">
-            <Select
-              label="LLM model"
-              radius="sm"
-              selectedKeys={[form.llmModel]}
-              isLoading={loadingLlmModels}
-              onSelectionChange={(keys) => setForm({ ...form, llmModel: String(Array.from(keys)[0] ?? form.llmModel) })}
-            >
-              {modelOptions.map((model) => (
-                <SelectItem key={model.name} textValue={model.name}>
-                  {model.name}{model.size ? ` (${model.size})` : ''}
-                </SelectItem>
-              ))}
-            </Select>
-            <Button
-              radius="sm"
-              variant="flat"
-              isLoading={loadingLlmModels}
-              onPress={loadLlmModels}
-            >
-              Refresh
-            </Button>
-          </div>
-
-          {llmModelsError && (
-            <Alert
-              color="warning"
-              variant="flat"
-              title="Local models unavailable"
-              description={llmModelsError}
-              className="col-span-2"
-            />
-          )}
 
           <div className="col-span-2 rounded-small bg-content1 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
