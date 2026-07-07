@@ -52,6 +52,7 @@ export interface WispLocConfig {
   llmModel: string
   language: string
   summaryLanguage: string
+  customVocabulary?: string[]
   chunkMinutes: number
   cleanChunks: boolean
   deleteOriginalAfterProcessing: boolean

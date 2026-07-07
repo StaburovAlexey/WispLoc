@@ -25,6 +25,7 @@ export const wispLocConfigSchema = z.object({
   llmModel: z.string().default('qwen3:4b'),
   language: z.string().default('ru'),
   summaryLanguage: z.string().default('ru'),
+  customVocabulary: z.array(z.string()).optional(),
   chunkMinutes: z.number().int().min(1).default(5),
   cleanChunks: z.boolean().default(true),
   deleteOriginalAfterProcessing: z.boolean().default(false),
@@ -75,6 +76,10 @@ export const finalSummarySchema = z.object({
   decisions: z.array(z.string()),
   risks: z.array(z.string()),
   openQuestions: z.array(z.string()),
+  actionItems: z.array(extractedActionItemSchema),
+})
+
+export const taskExtractionSchema = z.object({
   actionItems: z.array(extractedActionItemSchema),
 })
 
