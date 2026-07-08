@@ -13,9 +13,23 @@ export async function setupRoutes(app: FastifyInstance) {
   app.get('/status', async (_req, reply) => {
     const config = loadConfig()
     let setupState = await getOrCreateSetupState().catch(() => null)
+    const setupIsComplete = config.setupCompleted || setupState?.setupCompleted === true
     if (setupState?.status === 'RUNNING' && !setupPromise) {
-      setupPromise = startSetupRun({ resume: true })
-      setupState = await getOrCreateSetupState().catch(() => setupState)
+      if (setupIsComplete) {
+        setupState = await prisma.setupState.update({
+          where: { id: setupState.id },
+          data: {
+            status: 'COMPLETED',
+            currentStep: null,
+            progress: 100,
+            errorMessage: '',
+            setupCompleted: true,
+          },
+        })
+      } else {
+        setupPromise = startSetupRun({ resume: true })
+        setupState = await getOrCreateSetupState().catch(() => setupState)
+      }
     }
     const currentStep = setupState?.currentStep as SetupStep | null
 
@@ -125,9 +139,11 @@ export async function setupRoutes(app: FastifyInstance) {
 }
 
 function startSetupRun({ resume }: { resume: boolean }): Promise<void> {
+  let stateWriteQueue = Promise.resolve()
   const emit = (event: SetupEvent) => {
-    broadcastSetupEvent(event)
-    updateSetupState(event).catch((err) => {
+    const publicEvent = toPublicSetupEvent(event)
+    broadcastSetupEvent(publicEvent)
+    stateWriteQueue = stateWriteQueue.then(() => updateSetupState(publicEvent)).catch((err) => {
       console.error('Failed to persist setup event:', err)
     })
   }
@@ -150,15 +166,19 @@ function startSetupRun({ resume }: { resume: boolean }): Promise<void> {
         },
       })
     })
-    .then(() => runFullSetup(emit))
+    .then(async () => {
+      await runFullSetup(emit)
+      await stateWriteQueue
+    })
     .catch(async (err) => {
       console.error('Setup failed:', err)
+      await stateWriteQueue
       const state = await getOrCreateSetupState()
       await prisma.setupState.update({
         where: { id: state.id },
         data: {
           status: 'FAILED',
-          errorMessage: err.message ?? String(err),
+          errorMessage: friendlySetupError(err.message ?? String(err)),
         },
       })
     })
@@ -173,6 +193,44 @@ function broadcastSetupEvent(event: SetupEvent): void {
       client(event)
     } catch {}
   }
+}
+
+function toPublicSetupEvent(event: SetupEvent): SetupEvent {
+  if (event.type === 'step-failed') {
+    return { ...event, error: friendlySetupError(event.error) }
+  }
+  if (event.type === 'setup-failed') {
+    return { ...event, error: friendlySetupError(event.error) }
+  }
+  return event
+}
+
+function friendlySetupError(message: string): string {
+  const lower = message.toLowerCase()
+
+  if (lower.includes('checksum mismatch')) {
+    return 'Downloaded file did not match the expected version. Retry setup; if it repeats, update WispLoc.'
+  }
+  if (lower.includes('download failed') || lower.includes('enotfound') || lower.includes('etimedout') || lower.includes('network')) {
+    return 'Download failed. Check the internet connection and retry setup.'
+  }
+  if (lower.includes('auto-install is supported only on linux and windows')) {
+    return 'Automatic installation is supported only on Linux and Windows.'
+  }
+  if (lower.includes('ollama')) {
+    return 'Ollama setup failed. Restart WispLoc or retry setup.'
+  }
+  if (lower.includes('whisper')) {
+    return 'whisper.cpp setup failed. Retry setup or reinstall runtime dependencies from Settings.'
+  }
+  if (lower.includes('ffmpeg')) {
+    return 'FFmpeg setup failed. Retry setup or reinstall runtime dependencies from Settings.'
+  }
+  if (lower.includes('prisma') || lower.includes('sqlite') || lower.includes('database')) {
+    return 'Local database setup failed. Check write access to the WispLoc data directory and retry.'
+  }
+
+  return 'Setup failed. Check setup diagnostics logs for technical details.'
 }
 
 async function updateSetupState(event: SetupEvent) {

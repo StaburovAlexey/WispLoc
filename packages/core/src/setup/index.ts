@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
@@ -10,9 +11,11 @@ import { getDatabaseUrl, loadConfig, saveConfig } from '../config'
 import { writeManagedOllamaPid } from '../ollama/runtime'
 import { ensureDatabaseEnv, getPrisma } from '../database'
 import { installWhisperModel } from '../whisper/models'
+import { createLogger } from '../logger'
 
 export type SetupEventEmitter = (event: SetupEvent) => void
 let cancelRequested = false
+const setupLog = createLogger('setup', 'setup.log')
 
 const SETUP_STEPS: SetupStep[] = [
   'storage',
@@ -26,31 +29,129 @@ const SETUP_STEPS: SetupStep[] = [
   'doctor',
 ]
 
+type ToolchainAsset = {
+  archiveName: string
+  url: string
+  sha256?: string
+  checksumUrl?: string
+  headers?: Record<string, string>
+}
+
+const BTBN_FFMPEG_CHECKSUMS_URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/checksums.sha256'
+const DOWNLOAD_RETRY_DELAYS_MS = [750, 2_000, 5_000]
+
+const TOOLCHAIN_ASSETS = {
+  ffmpeg: {
+    linux: {
+      x64: {
+        archiveName: 'ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz',
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linux64-gpl-7.1.tar.xz',
+        checksumUrl: BTBN_FFMPEG_CHECKSUMS_URL,
+      },
+      arm64: {
+        archiveName: 'ffmpeg-n7.1-latest-linuxarm64-gpl-7.1.tar.xz',
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-linuxarm64-gpl-7.1.tar.xz',
+        checksumUrl: BTBN_FFMPEG_CHECKSUMS_URL,
+      },
+    },
+    win32: {
+      x64: {
+        archiveName: 'ffmpeg-n7.1-latest-win64-gpl-7.1.zip',
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip',
+        checksumUrl: BTBN_FFMPEG_CHECKSUMS_URL,
+      },
+      arm64: {
+        archiveName: 'ffmpeg-n7.1-latest-winarm64-gpl-7.1.zip',
+        url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-winarm64-gpl-7.1.zip',
+        checksumUrl: BTBN_FFMPEG_CHECKSUMS_URL,
+      },
+    },
+  },
+  whisperCli: {
+    linux: {
+      x64: {
+        archiveName: 'whisper-bin-ubuntu-x64-v1.9.1.tar.gz',
+        url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-ubuntu-x64.tar.gz',
+        sha256: 'f3bf3b4369a99b54665b0f19b88483b30de27f25963b0414235dea03198515c5',
+      },
+      arm64: {
+        archiveName: 'whisper-bin-ubuntu-arm64-v1.9.1.tar.gz',
+        url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-ubuntu-arm64.tar.gz',
+        sha256: 'e0b66cd551ff6f2a28fabe3c6e89691eea037bb76833493abb9a71ca788994b3',
+      },
+    },
+    win32: {
+      x64: {
+        archiveName: 'whisper-bin-x64-v1.9.1.zip',
+        url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip',
+        sha256: '7d8be46ecd31828e1eb7a2ecdd0d6b314feafd82163038ab6092594b0a063539',
+      },
+      ia32: {
+        archiveName: 'whisper-bin-Win32-v1.9.1.zip',
+        url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-Win32.zip',
+        sha256: 'be1ea26c9665f1165a2f3afb64f24476c09ba7da479c844bf33ef2870d47c954',
+      },
+    },
+  },
+  ollama: {
+    linux: {
+      x64: {
+        archiveName: 'ollama-linux-amd64-v0.31.1.tar.zst',
+        url: 'https://github.com/ollama/ollama/releases/download/v0.31.1/ollama-linux-amd64.tar.zst',
+        sha256: 'd297381efc136451f6fabb9dd644a67f70fe51c16815a0c4a95ff0e327a3afb4',
+      },
+      arm64: {
+        archiveName: 'ollama-linux-arm64-v0.31.1.tar.zst',
+        url: 'https://github.com/ollama/ollama/releases/download/v0.31.1/ollama-linux-arm64.tar.zst',
+        sha256: '47c82a67e59e060a735d1cb50a2acf020126a3a4be3f6847d5b58b7dd59620b6',
+      },
+    },
+    win32: {
+      x64: {
+        archiveName: 'ollama-windows-amd64-v0.31.1.zip',
+        url: 'https://github.com/ollama/ollama/releases/download/v0.31.1/ollama-windows-amd64.zip',
+        sha256: '9ecf5a631561c7dff3a143925f11e2008327be738a7279fcf0c5462b9c422700',
+      },
+      arm64: {
+        archiveName: 'ollama-windows-arm64-v0.31.1.zip',
+        url: 'https://github.com/ollama/ollama/releases/download/v0.31.1/ollama-windows-arm64.zip',
+        sha256: 'f529ac520435fba895f652922ef0dc7f1be1b951bcea5eaf360701c06d3f5e82',
+      },
+    },
+  },
+} as const
+
 export async function runFullSetup(emit: SetupEventEmitter): Promise<void> {
   const config = loadConfig()
   cancelRequested = false
   let failed = false
   let lastError = ''
+  setupLog.info('setup started', { steps: SETUP_STEPS })
 
   for (const step of SETUP_STEPS) {
     if (cancelRequested) {
+      setupLog.warn('setup cancelled', { step })
       emit({ type: 'step-failed', step, error: 'Setup cancelled', recoverable: true })
       failed = true
       break
     }
     emit({ type: 'step-started', step, message: `Running ${step}…` })
+    setupLog.info('setup step started', { step })
     try {
       await runSetupStep(step, emit)
       emit({ type: 'step-completed', step, message: `${step} OK` })
+      setupLog.info('setup step completed', { step })
     } catch (err: any) {
       failed = true
       lastError = err.message ?? String(err)
+      setupLog.error('setup step failed', { step, error: err })
       emit({
         type: 'step-failed',
         step,
         error: err.message ?? String(err),
         recoverable: true,
       })
+      break
     }
   }
 
@@ -58,13 +159,16 @@ export async function runFullSetup(emit: SetupEventEmitter): Promise<void> {
   saveConfig(config)
   if (!failed) {
     emit({ type: 'setup-completed' })
+    setupLog.info('setup completed')
   } else {
     emit({ type: 'setup-failed', error: lastError || 'Setup failed' })
+    setupLog.error('setup failed', { errorMessage: lastError || 'Setup failed' })
   }
 }
 
 export function cancelSetup(): void {
   cancelRequested = true
+  setupLog.warn('setup cancel requested')
 }
 
 async function runSetupStep(step: SetupStep, emit: SetupEventEmitter): Promise<void> {
@@ -97,10 +201,11 @@ async function runSetupStep(step: SetupStep, emit: SetupEventEmitter): Promise<v
     case 'llm-model':
       try {
         const ollamaBin = resolveLocalBinary('ollama')
+        const model = config.llmModel || DEFAULTS.llmModel
         const { stdout } = await execa(ollamaBin, ['list'], { timeout: 10_000 })
-        if (!stdout.includes(DEFAULTS.llmModel)) {
-          await pullOllamaModel(ollamaBin, DEFAULTS.llmModel, config.ollamaHost, step, emit)
-          emit({ type: 'step-progress', step, progress: 100, message: `${DEFAULTS.llmModel} pulled` })
+        if (!stdout.includes(model)) {
+          await pullOllamaModel(ollamaBin, model, config.ollamaHost, step, emit)
+          emit({ type: 'step-progress', step, progress: 100, message: `${model} pulled` })
         }
       } catch (err: any) {
         throw new Error(`Failed to pull LLM model: ${err.message ?? String(err)}`)
@@ -147,6 +252,7 @@ async function pullOllamaModel(
   }
 
   emit({ type: 'step-progress', step, progress: lastProgress, message: lastMessage })
+  setupLog.info('ollama model pull started', { model, ollamaHost })
   const heartbeat = setInterval(() => {
     void emitHeartbeat()
   }, 15_000)
@@ -175,6 +281,7 @@ async function pullOllamaModel(
     subprocess.stderr?.on('data', handleOutput)
     await subprocess
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+    setupLog.info('ollama model pull completed', { model, elapsedSeconds, downloadedBytes: lastBytes })
     emit({
       type: 'step-progress',
       step,
@@ -189,41 +296,38 @@ async function pullOllamaModel(
 
 async function ensureWhisperModel(emit: SetupEventEmitter, step: SetupStep): Promise<void> {
   const modelPath = path.join(PATHS.whisper, DEFAULTS.whisperModel)
-  if (fileExists(modelPath)) return
+  if (fileExists(modelPath)) {
+    setupLog.info('whisper model already installed', { modelPath })
+    return
+  }
 
   emit({ type: 'step-progress', step, progress: 1, message: 'Downloading ggml-base.bin…' })
+  setupLog.info('whisper model install started', { model: 'base', modelPath })
   await installWhisperModel('base')
+  setupLog.info('whisper model install completed', { model: 'base', modelPath })
   emit({ type: 'step-progress', step, progress: 100, message: 'ggml-base.bin downloaded' })
 }
 
 async function ensureFfmpeg(emit: SetupEventEmitter, step: SetupStep): Promise<void> {
   const ffmpegBin = resolveLocalBinary('ffmpeg')
-  if (await binaryWorks(ffmpegBin, ['-version'])) return
-  if (await binaryWorks('ffmpeg', ['-version'])) return
-
-  const arch = os.arch()
-  const platform = process.platform
-  let archiveName: string
-  let url: string
-  if (platform === 'linux') {
-    const asset = arch === 'x64' ? 'amd64' : arch === 'arm64' ? 'arm64' : null
-    if (!asset) throw new Error(`FFmpeg auto-install is not supported for architecture ${arch}`)
-    archiveName = `ffmpeg-${asset}.tar.xz`
-    url = `https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${asset}-static.tar.xz`
-  } else if (platform === 'win32') {
-    const asset = arch === 'x64' ? 'win64' : arch === 'arm64' ? 'winarm64' : null
-    if (!asset) throw new Error(`FFmpeg auto-install is not supported for architecture ${arch}`)
-    archiveName = `ffmpeg-${asset}.zip`
-    url = `https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-${asset}-gpl.zip`
-  } else {
-    throw unsupportedPlatformError('FFmpeg')
+  if (await binaryWorks(ffmpegBin, ['-version'])) {
+    setupLog.info('ffmpeg already installed', { command: ffmpegBin })
+    return
+  }
+  if (await binaryWorks('ffmpeg', ['-version'])) {
+    setupLog.info('ffmpeg available on PATH')
+    return
   }
 
-  const archivePath = path.join(PATHS.home, archiveName)
-  const extractDir = path.join(PATHS.home, path.basename(archiveName, path.extname(archiveName)))
+  const asset = getToolchainAsset(TOOLCHAIN_ASSETS.ffmpeg, 'FFmpeg')
+
+  const archivePath = path.join(PATHS.home, asset.archiveName)
+  const extractDir = path.join(PATHS.home, path.basename(asset.archiveName, path.extname(asset.archiveName)))
+  const sha256 = await resolveAssetSha256(asset)
 
   emit({ type: 'step-progress', step, progress: 5, message: 'Downloading FFmpeg static build…' })
-  await downloadFile(url, archivePath, step, emit)
+  setupLog.info('ffmpeg install started', { archiveName: asset.archiveName, platform: process.platform, arch: os.arch(), checksumSource: asset.checksumUrl ? 'remote' : 'static' })
+  await downloadFile(asset.url, archivePath, step, emit, { headers: asset.headers, sha256 })
 
   await fsp.rm(extractDir, { recursive: true, force: true })
   await fsp.mkdir(extractDir, { recursive: true })
@@ -245,36 +349,28 @@ async function ensureFfmpeg(emit: SetupEventEmitter, step: SetupStep): Promise<v
   if (!(await binaryWorks(resolveLocalBinary('ffmpeg'), ['-version']))) {
     throw new Error('Installed FFmpeg binary failed verification')
   }
+  setupLog.info('ffmpeg install completed', { ffmpegPath: resolveLocalBinary('ffmpeg'), ffprobePath: resolveLocalBinary('ffprobe') })
 }
 
 async function ensureWhisperCli(emit: SetupEventEmitter, step: SetupStep): Promise<void> {
   const whisperBin = resolveLocalBinary('whisper-cli')
   await ensureKnownWhisperLibraryAliases()
-  if (await binaryWorks(whisperBin, ['--help'], 10_000, runtimeBinaryEnv())) return
-  if (await binaryWorks('whisper-cli', ['--help'])) return
-
-  const arch = os.arch()
-  const assetName = getWhisperAssetName(arch)
-  if (!assetName) throw new Error(`whisper-cli auto-install is not supported for architecture ${arch}`)
-
-  emit({ type: 'step-progress', step, progress: 5, message: 'Resolving latest whisper.cpp release…' })
-  const releaseResponse = await fetch('https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest', {
-    headers: { Accept: 'application/vnd.github+json' },
-  })
-  if (!releaseResponse.ok) {
-    throw new Error(`Failed to resolve whisper.cpp release: HTTP ${releaseResponse.status}`)
+  if (await binaryWorks(whisperBin, ['--help'], 10_000, runtimeBinaryEnv())) {
+    setupLog.info('whisper-cli already installed', { command: whisperBin })
+    return
   }
-  const release = (await releaseResponse.json()) as {
-    assets?: Array<{ name: string; browser_download_url: string }>
+  if (await binaryWorks('whisper-cli', ['--help'])) {
+    setupLog.info('whisper-cli available on PATH')
+    return
   }
-  const asset = release.assets?.find((item) => item.name === assetName)
-  if (!asset) throw new Error(`Latest whisper.cpp release does not contain ${assetName}`)
 
-  const archivePath = path.join(PATHS.home, assetName)
+  const asset = getToolchainAsset(TOOLCHAIN_ASSETS.whisperCli, 'whisper-cli')
+  const archivePath = path.join(PATHS.home, asset.archiveName)
   const extractDir = path.join(PATHS.home, 'whisper-cli')
 
   emit({ type: 'step-progress', step, progress: 10, message: 'Downloading whisper-cli…' })
-  await downloadFile(asset.browser_download_url, archivePath, step, emit)
+  setupLog.info('whisper-cli install started', { archiveName: asset.archiveName, platform: process.platform, arch: os.arch() })
+  await downloadFile(asset.url, archivePath, step, emit, { sha256: asset.sha256 })
 
   await fsp.rm(extractDir, { recursive: true, force: true })
   await fsp.mkdir(extractDir, { recursive: true })
@@ -294,20 +390,27 @@ async function ensureWhisperCli(emit: SetupEventEmitter, step: SetupStep): Promi
   if (!(await binaryWorks(whisperBin, ['--help'], 10_000, runtimeBinaryEnv()))) {
     throw new Error('Installed whisper-cli binary failed verification')
   }
+  setupLog.info('whisper-cli install completed', { whisperBin })
 }
 
 async function ensureOllama(emit: SetupEventEmitter, step: SetupStep): Promise<void> {
   const ollamaBin = resolveLocalBinary('ollama')
-  if (await ensureOllamaServer(ollamaBin)) return
-  if (await ensureOllamaServer('ollama')) return
+  if (await ensureOllamaServer(ollamaBin)) {
+    setupLog.info('ollama already installed', { command: ollamaBin })
+    return
+  }
+  if (await ensureOllamaServer('ollama')) {
+    setupLog.info('ollama available on PATH')
+    return
+  }
 
   if (process.platform === 'linux') {
-    const asset = os.arch() === 'arm64' ? 'ollama-linux-arm64.tar.zst' : 'ollama-linux-amd64.tar.zst'
-    const archivePath = path.join(PATHS.home, asset)
+    const asset = getToolchainAsset(TOOLCHAIN_ASSETS.ollama, 'Ollama')
+    const archivePath = path.join(PATHS.home, asset.archiveName)
     const extractDir = path.join(PATHS.home, 'ollama')
-    const url = `https://github.com/ollama/ollama/releases/latest/download/${asset}`
     emit({ type: 'step-progress', step, progress: 10, message: 'Downloading Ollama…' })
-    await downloadFile(url, archivePath, step, emit)
+    setupLog.info('ollama install started', { archiveName: asset.archiveName, platform: process.platform, arch: os.arch() })
+    await downloadFile(asset.url, archivePath, step, emit, { sha256: asset.sha256 })
     await fsp.rm(extractDir, { recursive: true, force: true })
     await fsp.mkdir(extractDir, { recursive: true })
     emit({ type: 'step-progress', step, progress: 85, message: 'Extracting Ollama…' })
@@ -320,12 +423,12 @@ async function ensureOllama(emit: SetupEventEmitter, step: SetupStep): Promise<v
     await chmodExecutable(ollamaBin)
     await fsp.rm(archivePath, { force: true })
   } else if (process.platform === 'win32') {
-    const asset = os.arch() === 'arm64' ? 'ollama-windows-arm64.zip' : 'ollama-windows-amd64.zip'
-    const archivePath = path.join(PATHS.home, asset)
+    const asset = getToolchainAsset(TOOLCHAIN_ASSETS.ollama, 'Ollama')
+    const archivePath = path.join(PATHS.home, asset.archiveName)
     const extractDir = path.join(PATHS.home, 'ollama')
-    const url = `https://github.com/ollama/ollama/releases/latest/download/${asset}`
     emit({ type: 'step-progress', step, progress: 10, message: 'Downloading Ollama…' })
-    await downloadFile(url, archivePath, step, emit)
+    setupLog.info('ollama install started', { archiveName: asset.archiveName, platform: process.platform, arch: os.arch() })
+    await downloadFile(asset.url, archivePath, step, emit, { sha256: asset.sha256 })
     await fsp.rm(extractDir, { recursive: true, force: true })
     await fsp.mkdir(extractDir, { recursive: true })
     emit({ type: 'step-progress', step, progress: 85, message: 'Extracting Ollama…' })
@@ -345,6 +448,7 @@ async function ensureOllama(emit: SetupEventEmitter, step: SetupStep): Promise<v
   if (!(await ensureOllamaServer(ollamaBin))) {
     throw new Error('Ollama installed, but the service is not reachable at 127.0.0.1:11434')
   }
+  setupLog.info('ollama install completed', { ollamaBin })
 }
 
 async function ensureOllamaServer(command: string): Promise<boolean> {
@@ -354,9 +458,12 @@ async function ensureOllamaServer(command: string): Promise<boolean> {
   try {
     const child = execa(command, ['serve'], { detached: true, stdio: 'ignore' })
     writeManagedOllamaPid(child.pid)
+    setupLog.info('ollama server started', { command, pid: child.pid })
     child.unref()
     await sleep(3000)
-  } catch {}
+  } catch (err) {
+    setupLog.warn('ollama server start failed', { command, error: err })
+  }
 
   return binaryWorks(command, ['list'], 10_000)
 }
@@ -394,11 +501,17 @@ async function downloadFile(
   destination: string,
   step: SetupStep,
   emit: SetupEventEmitter,
+  options: { headers?: Record<string, string>; sha256?: string } = {},
 ): Promise<void> {
   await fsp.mkdir(path.dirname(destination), { recursive: true })
   const tempPath = `${destination}.part`
   const existingBytes = await getFileSize(tempPath)
-  const headers: Record<string, string> = {}
+  setupLog.info('download started', {
+    fileName: path.basename(destination),
+    destination,
+    resumedBytes: existingBytes,
+  })
+  const headers: Record<string, string> = { ...options.headers }
   if (existingBytes > 0) {
     headers.Range = `bytes=${existingBytes}-`
     emit({
@@ -410,12 +523,14 @@ async function downloadFile(
     })
   }
 
-  let response = await fetch(url, { headers })
+  await assertDownloadSourceReachable(url, options.headers)
+
+  let response = await fetchWithRetry(url, { headers })
   let append = existingBytes > 0 && response.status === 206
 
   if (existingBytes > 0 && response.status === 200) {
     await fsp.rm(tempPath, { force: true })
-    response = await fetch(url)
+    response = await fetchWithRetry(url, { headers: options.headers })
     append = false
   }
 
@@ -454,6 +569,20 @@ async function downloadFile(
   }
 
   await fsp.rename(tempPath, destination)
+
+  if (options.sha256) {
+    const actual = await sha256File(destination)
+    if (actual !== options.sha256.toLowerCase()) {
+      await fsp.rm(destination, { force: true })
+      setupLog.error('download checksum failed', { fileName: path.basename(destination), destination, actual })
+      throw new Error(`Checksum mismatch for ${path.basename(destination)}: expected ${options.sha256}, got ${actual}`)
+    }
+  }
+  setupLog.info('download completed', {
+    fileName: path.basename(destination),
+    destination,
+    downloadedBytes,
+  })
 }
 
 async function getFileSize(filePath: string): Promise<number> {
@@ -498,6 +627,103 @@ function parseOllamaPullProgress(value: string): number | null {
   return Math.min(99, Math.max(1, percentage))
 }
 
+function getToolchainAsset<T extends Partial<Record<NodeJS.Platform, Partial<Record<string, ToolchainAsset>>>>>(
+  assets: T,
+  component: string,
+): ToolchainAsset {
+  const platformAssets = assets[process.platform]
+  if (!platformAssets) throw unsupportedPlatformError(component)
+
+  const asset = platformAssets[os.arch()]
+  if (!asset) throw new Error(`${component} auto-install is not supported for architecture ${os.arch()}`)
+
+  return asset
+}
+
+async function resolveAssetSha256(asset: ToolchainAsset): Promise<string> {
+  if (asset.sha256) return asset.sha256
+  if (!asset.checksumUrl) throw new Error(`Missing checksum for ${asset.archiveName}`)
+
+  setupLog.info('resolving remote checksum', { archiveName: asset.archiveName, checksumUrl: asset.checksumUrl })
+  const response = await fetchWithRetry(asset.checksumUrl)
+  if (!response.ok) {
+    throw new Error(`Failed to resolve checksum for ${asset.archiveName}: HTTP ${response.status}`)
+  }
+
+  const checksums = await response.text()
+  for (const line of checksums.split('\n')) {
+    const [sha256, fileName] = line.trim().split(/\s+/)
+    if (fileName === asset.archiveName && /^[a-f0-9]{64}$/i.test(sha256)) {
+      setupLog.info('remote checksum resolved', { archiveName: asset.archiveName })
+      return sha256
+    }
+  }
+
+  throw new Error(`Checksum file did not contain ${asset.archiveName}`)
+}
+
+async function assertDownloadSourceReachable(url: string, headers?: Record<string, string>): Promise<void> {
+  const response = await fetchWithRetry(url, {
+    method: 'HEAD',
+    headers,
+    redirect: 'follow',
+  })
+
+  if (response.ok) return
+  response.body?.cancel().catch(() => {})
+
+  if (response.status !== 405 && response.status !== 501) {
+    throw new Error(`Download source is not reachable: ${url} returned HTTP ${response.status}`)
+  }
+
+  const rangeResponse = await fetchWithRetry(url, {
+    headers: { ...headers, Range: 'bytes=0-0' },
+    redirect: 'follow',
+  })
+  rangeResponse.body?.cancel().catch(() => {})
+
+  if (!rangeResponse.ok) {
+    throw new Error(`Download source is not reachable: ${url} returned HTTP ${rangeResponse.status}`)
+  }
+}
+
+async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+  let lastError: unknown = null
+
+  for (let attempt = 0; attempt <= DOWNLOAD_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetch(url, init)
+      if (response.ok || !isRetryableStatus(response.status) || attempt === DOWNLOAD_RETRY_DELAYS_MS.length) {
+        return response
+      }
+      response.body?.cancel().catch(() => {})
+      lastError = new Error(`HTTP ${response.status}`)
+    } catch (err) {
+      lastError = err
+      if (attempt === DOWNLOAD_RETRY_DELAYS_MS.length) break
+    }
+
+    await sleep(DOWNLOAD_RETRY_DELAYS_MS[attempt])
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash('sha256')
+  const stream = fs.createReadStream(filePath)
+
+  for await (const chunk of stream) {
+    hash.update(chunk)
+  }
+
+  return hash.digest('hex')
+}
+
 function formatBytes(bytes: number): string {
   const units = ['B', 'KB', 'MB', 'GB']
   let value = bytes
@@ -511,18 +737,6 @@ function formatBytes(bytes: number): string {
 
 async function extractArchive(archivePath: string, extractDir: string): Promise<void> {
   await execa('tar', ['-xf', archivePath, '-C', extractDir], { timeout: 120_000 })
-}
-
-function getWhisperAssetName(arch: string): string | null {
-  if (process.platform === 'linux') {
-    if (arch === 'x64') return 'whisper-bin-ubuntu-x64.tar.gz'
-    if (arch === 'arm64') return 'whisper-bin-ubuntu-arm64.tar.gz'
-  }
-  if (process.platform === 'win32') {
-    if (arch === 'x64') return 'whisper-bin-x64.zip'
-    if (arch === 'ia32') return 'whisper-bin-Win32.zip'
-  }
-  return null
 }
 
 function resolveLocalBinary(name: string): string {
