@@ -9,7 +9,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "lint": "echo ok"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",

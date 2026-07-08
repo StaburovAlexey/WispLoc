@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "echo ok"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@wisploc/api": "workspace:*",
