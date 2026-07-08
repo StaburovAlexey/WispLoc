@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link as RouterLink, useLocation } from 'react-router-dom'
+import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Button,
   Card,
@@ -11,8 +11,11 @@ import {
   NavbarBrand,
   NavbarContent,
   NavbarItem,
+  Select,
+  SelectItem,
   Spinner,
 } from '@heroui/react'
+import { useI18n } from '../shared/i18n'
 
 interface PageShellProps {
   title: string
@@ -56,15 +59,16 @@ export function PageShell({ title, subtitle, eyebrow, actions, children, width =
 }
 
 const NAV_ITEMS = [
-  { label: 'Setup', href: '/setup' },
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Media', href: '/media' },
-  { label: 'Integrations', href: '/integrations' },
-  { label: 'Settings', href: '/settings' },
-]
+  { labelKey: 'nav.setup', href: '/setup' },
+  { labelKey: 'nav.dashboard', href: '/dashboard' },
+  { labelKey: 'nav.media', href: '/media' },
+  { labelKey: 'nav.integrations', href: '/integrations' },
+  { labelKey: 'nav.settings', href: '/settings' },
+] as const
 
 export function AppTopBar() {
   const location = useLocation()
+  const { language, setLanguage, t } = useI18n()
 
   return (
     <Navbar
@@ -87,19 +91,38 @@ export function AppTopBar() {
                 variant={active ? 'flat' : 'light'}
                 radius="sm"
               >
-                {item.label}
+                {t(item.labelKey)}
               </Button>
             </NavbarItem>
           )
         })}
+        <NavbarItem>
+          <Select
+            aria-label={t('language.label')}
+            size="sm"
+            radius="sm"
+            variant="faded"
+            selectedKeys={[language]}
+            className="w-24"
+            onSelectionChange={(keys) => {
+              const nextLanguage = String(Array.from(keys)[0] ?? 'ru')
+              if (nextLanguage === 'ru' || nextLanguage === 'en') setLanguage(nextLanguage)
+            }}
+          >
+            <SelectItem key="ru">{t('language.ru')}</SelectItem>
+            <SelectItem key="en">{t('language.en')}</SelectItem>
+          </Select>
+        </NavbarItem>
       </NavbarContent>
     </Navbar>
   )
 }
 
 export function LoadingPage({ label }: { label: string }) {
+  const { t } = useI18n()
+
   return (
-    <PageShell title={label} subtitle="Loading local data" eyebrow="WispLoc">
+    <PageShell title={label} subtitle={t('common.loadingLocalData')} eyebrow="WispLoc">
       <div className="flex min-h-48 items-center justify-center">
         <Spinner size="lg" color="primary" />
       </div>
@@ -108,10 +131,12 @@ export function LoadingPage({ label }: { label: string }) {
 }
 
 export function EmptyState({ title, description, action }: { title: string; description: string; action?: ReactNode }) {
+  const { t } = useI18n()
+
   return (
     <Card radius="sm" className="border border-default-100 bg-content2">
       <CardBody className="items-start gap-3 p-6">
-        <Chip color="default" variant="flat" radius="sm">Empty</Chip>
+        <Chip color="default" variant="flat" radius="sm">{t('common.empty')}</Chip>
         <div>
           <h2 className="font-semibold">{title}</h2>
           <p className="text-small text-default-500">{description}</p>
@@ -122,6 +147,23 @@ export function EmptyState({ title, description, action }: { title: string; desc
   )
 }
 
-export function BackButton() {
-  return null
+export function BackButton({ fallback = '/media' }: { fallback?: string }) {
+  const navigate = useNavigate()
+  const { t } = useI18n()
+
+  return (
+    <Button
+      variant="flat"
+      radius="sm"
+      onPress={() => {
+        if (window.history.length > 1) {
+          navigate(-1)
+        } else {
+          navigate(fallback)
+        }
+      }}
+    >
+      {t('common.back')}
+    </Button>
+  )
 }
