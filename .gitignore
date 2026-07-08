@@ -11,3 +11,5 @@ apps/web/vite.config.js.map
 .turbo
 coverage/
 .wisploc/
+.codegraph
+.playwright-mcp
