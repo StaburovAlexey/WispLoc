@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Alert, Button, Card, CardBody, Chip, Input, Select, SelectItem, Textarea } from '@heroui/react'
 import { BackButton, EmptyState, LoadingPage, PageShell } from './PageShell'
+import { FIELD_PROPS, TEXT_FIELD_PROPS } from '../shared/formControls'
+import { useI18n } from '../shared/i18n'
 
 interface TaskData {
   id: string
@@ -34,6 +36,7 @@ interface TargetItem {
 }
 
 export function TasksPage() {
+  const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const [tasks, setTasks] = useState<TaskData[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -133,19 +136,19 @@ export function TasksPage() {
         [createTaskId]: data.success ? { url: data.externalUrl } : { error: data.error },
       }))
     } catch {
-      setCreateResult((prev) => ({ ...prev, [createTaskId]: { error: 'Network error' } }))
+      setCreateResult((prev) => ({ ...prev, [createTaskId]: { error: t('tasks.networkError') } }))
     }
     setCreating(false)
     setCreateTaskId(null)
   }
 
-  if (loading) return <LoadingPage label="Tasks" />
+  if (loading) return <LoadingPage label={t('tasks.title')} />
 
   return (
     <PageShell
-      title="Tasks"
-      subtitle={`${tasks.length} extracted tasks · Review before creating externally`}
-      eyebrow="Review first"
+      title={t('tasks.title')}
+      subtitle={t('tasks.subtitle', { count: tasks.length })}
+      eyebrow={t('tasks.eyebrow')}
       actions={<BackButton />}
       width="xl"
     >
@@ -153,8 +156,8 @@ export function TasksPage() {
         <Alert
           color="warning"
           variant="flat"
-          title="These selected tasks will be sent to the external service"
-          description="Only the task title, description, and metadata will be sent. Full transcript data is not included."
+          title={t('tasks.externalWarningTitle')}
+          description={t('tasks.externalWarningDescription')}
         />
       )}
 
@@ -162,9 +165,9 @@ export function TasksPage() {
         <Card radius="sm" className="border border-default-100 bg-content2">
           <CardBody className="gap-4 p-6">
             <div className="grid grid-cols-2 gap-4">
-              <Select
-                label="Integration"
-                radius="sm"
+                <Select
+                  {...FIELD_PROPS}
+                  label={t('tasks.integration')}
                 selectedKeys={selectedIntId ? [selectedIntId] : []}
                 onSelectionChange={async (keys) => {
                   const value = String(Array.from(keys)[0] ?? '')
@@ -178,9 +181,9 @@ export function TasksPage() {
                 ))}
               </Select>
 
-              <Select
-                label="Target"
-                radius="sm"
+                <Select
+                  {...FIELD_PROPS}
+                  label={t('tasks.target')}
                 selectedKeys={selectedTargetId ? [selectedTargetId] : []}
                 onSelectionChange={(keys) => setSelectedTargetId(String(Array.from(keys)[0] ?? ''))}
               >
@@ -191,16 +194,16 @@ export function TasksPage() {
             </div>
             <div className="flex gap-2">
               <Button color="primary" radius="sm" isLoading={creating} onPress={handleCreateExternal} isDisabled={!selectedIntId || !selectedTargetId}>
-                Create external task
+                {t('tasks.createExternalTask')}
               </Button>
-              <Button variant="flat" radius="sm" onPress={() => setCreateTaskId(null)}>Cancel</Button>
+              <Button variant="flat" radius="sm" onPress={() => setCreateTaskId(null)}>{t('common.cancel')}</Button>
             </div>
           </CardBody>
         </Card>
       )}
 
       {tasks.length === 0 ? (
-        <EmptyState title="No extracted tasks" description="Process the media file and generate a summary first." />
+        <EmptyState title={t('tasks.noExtracted')} description={t('tasks.noExtractedDescription')} />
       ) : (
         <div className="grid gap-3">
           {tasks.map((task) => {
@@ -215,38 +218,38 @@ export function TasksPage() {
                       {editing ? (
                         <div className="grid gap-3">
                           <Input
-                            label="Title"
-                            radius="sm"
+                            {...TEXT_FIELD_PROPS}
+                            label={t('tasks.titleField')}
                             value={editForm.title ?? ''}
                             onValueChange={(title) => setEditForm({ ...editForm, title })}
                           />
                           <Textarea
-                            label="Description"
-                            radius="sm"
+                            {...TEXT_FIELD_PROPS}
+                            label={t('tasks.descriptionField')}
                             minRows={3}
                             value={editForm.description ?? ''}
                             onValueChange={(description) => setEditForm({ ...editForm, description })}
                           />
                           <div className="grid grid-cols-3 gap-3">
                             <Select
-                              label="Priority"
-                              radius="sm"
+                              {...FIELD_PROPS}
+                              label={t('tasks.priority')}
                               selectedKeys={editForm.priority ? [editForm.priority] : []}
                               onSelectionChange={(keys) => setEditForm({ ...editForm, priority: String(Array.from(keys)[0] ?? '') })}
                             >
-                              <SelectItem key="low">low</SelectItem>
-                              <SelectItem key="medium">medium</SelectItem>
-                              <SelectItem key="high">high</SelectItem>
+                              <SelectItem key="low">{t('priority.low')}</SelectItem>
+                              <SelectItem key="medium">{t('priority.medium')}</SelectItem>
+                              <SelectItem key="high">{t('priority.high')}</SelectItem>
                             </Select>
                             <Input
-                              label="Labels"
-                              radius="sm"
+                              {...TEXT_FIELD_PROPS}
+                              label={t('tasks.labels')}
                               value={(editForm.labels ?? []).join(', ')}
                               onValueChange={(value) => setEditForm({ ...editForm, labels: value.split(',').map((item) => item.trim()).filter(Boolean) })}
                             />
                             <Input
-                              label="Assignee"
-                              radius="sm"
+                              {...TEXT_FIELD_PROPS}
+                              label={t('tasks.assignee')}
                               value={editForm.assigneeHint ?? ''}
                               onValueChange={(assigneeHint) => setEditForm({ ...editForm, assigneeHint })}
                             />
@@ -257,9 +260,9 @@ export function TasksPage() {
                           <h2 className="font-semibold">{task.title}</h2>
                           <p className="text-small leading-6 text-default-500">{task.description}</p>
                           <div className="flex flex-wrap gap-2">
-                            <Chip size="sm" color={statusColor(task.status)} variant="flat" radius="sm">{task.status}</Chip>
-                            {task.priority && <Chip size="sm" color={priorityColor(task.priority)} variant="flat" radius="sm">{task.priority}</Chip>}
-                            {task.confidence !== null && <Chip size="sm" variant="flat" radius="sm">confidence {(task.confidence * 100).toFixed(0)}%</Chip>}
+                            <Chip size="sm" color={statusColor(task.status)} variant="flat" radius="sm">{taskStatusLabel(task.status, t)}</Chip>
+                            {task.priority && <Chip size="sm" color={priorityColor(task.priority)} variant="flat" radius="sm">{priorityLabel(task.priority, t)}</Chip>}
+                            {task.confidence !== null && <Chip size="sm" variant="flat" radius="sm">{t('tasks.confidence', { value: (task.confidence * 100).toFixed(0) })}</Chip>}
                             {task.sourceTimecode && <Chip size="sm" variant="flat" radius="sm">{task.sourceTimecode}</Chip>}
                             {task.labels.map((label) => <Chip key={label} size="sm" variant="flat" radius="sm">{label}</Chip>)}
                           </div>
@@ -268,26 +271,26 @@ export function TasksPage() {
                     </div>
                   </div>
 
-                  {result?.url && <Alert color="success" variant="flat" title="External task created" description={result.url} />}
-                  {result?.error && <Alert color="danger" variant="flat" title="External task failed" description={result.error} />}
+                  {result?.url && <Alert color="success" variant="flat" title={t('tasks.created')} description={result.url} />}
+                  {result?.error && <Alert color="danger" variant="flat" title={t('tasks.failed')} description={result.error} />}
 
                   <div className="flex flex-wrap gap-2">
                     {editing ? (
                       <>
-                        <Button size="sm" color="primary" radius="sm" onPress={saveEdit}>Save</Button>
-                        <Button size="sm" variant="flat" radius="sm" onPress={() => setEditingId(null)}>Cancel</Button>
+                        <Button size="sm" color="primary" radius="sm" onPress={saveEdit}>{t('common.save')}</Button>
+                        <Button size="sm" variant="flat" radius="sm" onPress={() => setEditingId(null)}>{t('common.cancel')}</Button>
                       </>
                     ) : (
                       <>
-                        <Button size="sm" variant="flat" radius="sm" onPress={() => startEdit(task)}>Edit</Button>
+                        <Button size="sm" variant="flat" radius="sm" onPress={() => startEdit(task)}>{t('common.edit')}</Button>
                         {task.status === 'DRAFT' && (
                           <>
-                            <Button size="sm" color="success" variant="flat" radius="sm" onPress={() => handleApprove(task.id)}>Approve</Button>
-                            <Button size="sm" color="danger" variant="flat" radius="sm" onPress={() => handleReject(task.id)}>Reject</Button>
+                            <Button size="sm" color="success" variant="flat" radius="sm" onPress={() => handleApprove(task.id)}>{t('tasks.approve')}</Button>
+                            <Button size="sm" color="danger" variant="flat" radius="sm" onPress={() => handleReject(task.id)}>{t('tasks.reject')}</Button>
                           </>
                         )}
                         {task.status === 'APPROVED' && (
-                          <Button size="sm" color="primary" radius="sm" onPress={() => openCreateExternal(task.id)}>Create external</Button>
+                          <Button size="sm" color="primary" radius="sm" onPress={() => openCreateExternal(task.id)}>{t('tasks.createExternal')}</Button>
                         )}
                       </>
                     )}
@@ -312,4 +315,18 @@ function priorityColor(priority: string): 'default' | 'warning' | 'danger' {
   if (priority === 'high') return 'danger'
   if (priority === 'medium') return 'warning'
   return 'default'
+}
+
+function priorityLabel(priority: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (priority === 'high') return t('priority.high')
+  if (priority === 'medium') return t('priority.medium')
+  if (priority === 'low') return t('priority.low')
+  return priority
+}
+
+function taskStatusLabel(status: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (status === 'DRAFT') return t('taskStatus.draft')
+  if (status === 'APPROVED') return t('taskStatus.approved')
+  if (status === 'REJECTED') return t('taskStatus.rejected')
+  return status
 }

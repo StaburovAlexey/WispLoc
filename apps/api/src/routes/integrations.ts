@@ -15,7 +15,7 @@ import {
   createGitHubProvider,
   createGitLabProvider,
 } from '@wisploc/integrations'
-import type { IntegrationTarget, TaskIntegrationProvider } from '@wisploc/shared'
+import type { TaskIntegrationProvider } from '@wisploc/shared'
 
 export async function integrationRoutes(app: FastifyInstance) {
   // ── CRUD ────────────────────────────────────────────
@@ -164,8 +164,6 @@ export async function integrationRoutes(app: FastifyInstance) {
 
 // ── Provider factory ────────────────────────────────────
 function buildProvider(integration: any): TaskIntegrationProvider | null {
-  const settings = integration.settingsJson ? JSON.parse(integration.settingsJson) : {}
-
   switch (integration.provider) {
     case 'yandex-tracker':
       return createYandexTrackerProvider({
