@@ -3,8 +3,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Alert, Button, Card, CardBody, Chip } from '@heroui/react'
 import type { MediaFileDto } from '@wisploc/shared'
 import { BackButton, EmptyState, LoadingPage, PageShell } from './PageShell'
+import { friendlyError } from '../shared/errors'
+import { useI18n } from '../shared/i18n'
 
 export function MediaDetailPage() {
+  const { t, language } = useI18n()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [media, setMedia] = useState<MediaFileDto | null>(null)
@@ -21,12 +24,12 @@ export function MediaDetailPage() {
 
   useEffect(() => { loadMedia() }, [loadMedia])
 
-  if (loading) return <LoadingPage label="Media" />
+  if (loading) return <LoadingPage label={t('media.title')} />
 
   if (!media) {
     return (
-      <PageShell title="Media not found" subtitle="The local media record is unavailable" eyebrow="Media" actions={<BackButton />}>
-        <EmptyState title="Missing media" description="Open the media library and select another file." />
+      <PageShell title={t('media.notFound')} subtitle={t('media.unavailable')} eyebrow={t('media.title')} actions={<BackButton />}>
+        <EmptyState title={t('media.missing')} description={t('media.missingDescription')} />
       </PageShell>
     )
   }
@@ -34,25 +37,44 @@ export function MediaDetailPage() {
   return (
     <PageShell
       title={media.originalName}
-      subtitle={`${formatSize(media.sizeBytes)} · ${formatDuration(media.durationSec)}`}
-      eyebrow="Media detail"
-      actions={<Chip color={statusColor(media.status)} variant="flat" radius="sm">{media.status}</Chip>}
+      subtitle={`${formatSize(media.sizeBytes)} · ${formatDuration(media.durationSec, t)}`}
+      eyebrow={t('media.detail')}
+      actions={<Chip color={statusColor(media.status)} variant="flat" radius="sm">{mediaStatusLabel(media.status, t)}</Chip>}
       width="xl"
     >
-      {media.errorMessage && <Alert color="danger" variant="flat" title="Processing error" description={media.errorMessage} />}
+      {media.errorMessage && (
+        <Alert
+          color="danger"
+          variant="flat"
+          title={t('media.processingError')}
+          description={friendlyError(media.errorMessage, t('media.processingFailed'), language)}
+        />
+      )}
 
       <div className="grid grid-cols-3 gap-4">
-        <ActionCard title="Transcript" desc="Full transcript, search, copy, and export." onClick={() => navigate(`/media/${id}/transcript`)} />
-        <ActionCard title="Summary" desc="Short summary, key points, decisions, risks, and questions." onClick={() => navigate(`/media/${id}/summary`)} />
-        <ActionCard title="Tasks" desc="Review extracted action items before external creation." onClick={() => navigate(`/media/${id}/tasks`)} />
+        <ActionCard title={t('transcript.title')} desc={t('media.transcriptCardDescription')} onClick={() => navigate(`/media/${id}/transcript`)} />
+        <ActionCard title={t('summary.title')} desc={t('media.summaryCardDescription')} onClick={() => navigate(`/media/${id}/summary`)} />
+        <ActionCard title={t('tasks.title')} desc={t('media.tasksCardDescription')} onClick={() => navigate(`/media/${id}/tasks`)} />
       </div>
 
       <div className="flex justify-between">
         <BackButton />
-        <Button variant="flat" radius="sm" onPress={() => navigate('/media')}>Media library</Button>
+        <Button variant="flat" radius="sm" onPress={() => navigate('/media')}>{t('media.library')}</Button>
       </div>
     </PageShell>
   )
+}
+
+function mediaStatusLabel(status: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (status === 'UPLOADED') return t('mediaStatus.uploaded')
+  if (status === 'EXTRACTING_AUDIO') return t('mediaStatus.extractingAudio')
+  if (status === 'TRANSCRIBING') return t('mediaStatus.transcribing')
+  if (status === 'SUMMARIZING') return t('mediaStatus.summarizing')
+  if (status === 'EXTRACTING_TASKS') return t('mediaStatus.extractingTasks')
+  if (status === 'DONE') return t('status.done')
+  if (status === 'FAILED') return t('status.failed')
+  if (status === 'CANCELLED') return t('status.cancelled')
+  return status
 }
 
 function ActionCard({ title, desc, onClick }: { title: string; desc: string; onClick: () => void }) {
@@ -72,8 +94,8 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-function formatDuration(sec: number | null) {
-  if (!sec) return 'duration unknown'
+function formatDuration(sec: number | null, t: ReturnType<typeof useI18n>['t']) {
+  if (!sec) return t('common.durationUnknown')
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${String(s).padStart(2, '0')}`

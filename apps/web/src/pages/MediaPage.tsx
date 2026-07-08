@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, CardBody, Chip, Progress, Spinner } from '@heroui/react'
 import type { JobProgressEvent, MediaFileDto } from '@wisploc/shared'
 import { EmptyState, PageShell } from './PageShell'
+import { friendlyError } from '../shared/errors'
+import { useI18n } from '../shared/i18n'
 
 export function MediaPage() {
+  const { t, language } = useI18n()
   const [files, setFiles] = useState<MediaFileDto[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -32,12 +35,12 @@ export function MediaPage() {
         if (evt.status === 'DONE' || evt.status === 'FAILED' || evt.status === 'CANCELLED') {
           setActiveJobId(null)
           loadFiles()
-          if (evt.status === 'FAILED') setError(evt.error ?? 'Processing failed')
+          if (evt.status === 'FAILED') setError(friendlyError(evt.error, t('media.processingFailed'), language))
         }
       } catch {}
     }
     return () => es.close()
-  }, [activeJobId, loadFiles])
+  }, [activeJobId, language, loadFiles, t])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -65,7 +68,7 @@ export function MediaPage() {
       setUploadProgress(0)
       loadFiles()
     } catch (err: any) {
-      setError(err.message)
+      setError(friendlyError(err.message, t('media.uploadFailed'), language))
       setUploading(false)
     }
   }
@@ -79,7 +82,7 @@ export function MediaPage() {
       setJobProgress(0)
       setJobStep(null)
     } catch (err: any) {
-      setError(err.message)
+      setError(friendlyError(err.message, t('media.startProcessingFailed'), language))
     }
   }
 
@@ -89,8 +92,8 @@ export function MediaPage() {
   }
 
   return (
-    <PageShell title="Media" subtitle="Upload video or audio files for local processing" eyebrow="Library" width="xl">
-      {error && <Alert color="danger" variant="flat" title="Media error" description={error} />}
+    <PageShell title={t('media.title')} subtitle={t('media.subtitle')} eyebrow={t('media.eyebrow')} width="xl">
+      {error && <Alert color="danger" variant="flat" title={t('media.error')} description={error} />}
 
       <Card radius="sm" className="border border-default-100 bg-content2">
         <CardBody className="gap-4 p-6">
@@ -100,14 +103,14 @@ export function MediaPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-center gap-2">
                   <Spinner size="sm" color="primary" />
-                  <span className="font-medium">Uploading {uploadProgress}%</span>
+                  <span className="font-medium">{t('media.uploading', { progress: uploadProgress })}</span>
                 </div>
                 <Progress value={uploadProgress} color="primary" radius="sm" />
               </div>
             ) : (
               <div className="space-y-1">
-                <p className="font-semibold">Click to upload</p>
-                <p className="text-small text-default-500">Supported: MP3, WAV, MP4, WebM, MKV, MOV, and more</p>
+                <p className="font-semibold">{t('media.uploadCta')}</p>
+                <p className="text-small text-default-500">{t('media.supported')}</p>
               </div>
             )}
           </label>
@@ -118,15 +121,15 @@ export function MediaPage() {
         <Alert
           color="primary"
           variant="flat"
-          title={`Processing ${jobProgress}%`}
-          description={jobStep?.replace(/_/g, ' ') ?? 'Starting local worker job'}
+          title={t('media.processingTitle', { progress: jobProgress })}
+          description={jobStep?.replace(/_/g, ' ') ?? t('media.startingJob')}
           icon={<Spinner size="sm" color="primary" />}
-          endContent={<Progress aria-label="Processing progress" value={jobProgress} color="primary" radius="sm" className="w-48" />}
+          endContent={<Progress aria-label={t('media.progressAria')} value={jobProgress} color="primary" radius="sm" className="w-48" />}
         />
       )}
 
       {files.length === 0 ? (
-        <EmptyState title="No files yet" description="Uploaded media files will appear here." />
+        <EmptyState title={t('media.noFiles')} description={t('media.noFilesDescription')} />
       ) : (
         <div className="grid gap-3">
           {files.map((file) => (
@@ -139,10 +142,10 @@ export function MediaPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Chip color={statusColor(file.status)} variant="flat" radius="sm">{file.status}</Chip>
-                  <Button size="sm" variant="flat" radius="sm" onPress={() => (window.location.href = `/media/${file.id}`)}>Open</Button>
-                  <Button size="sm" color="primary" variant="flat" radius="sm" onPress={() => handleProcess(file.id)}>Process</Button>
-                  <Button size="sm" color="danger" variant="flat" radius="sm" onPress={() => handleDelete(file.id)}>Delete</Button>
+                  <Chip color={statusColor(file.status)} variant="flat" radius="sm">{mediaStatusLabel(file.status, t)}</Chip>
+                  <Button size="sm" variant="flat" radius="sm" onPress={() => (window.location.href = `/media/${file.id}`)}>{t('media.open')}</Button>
+                  <Button size="sm" color="primary" variant="flat" radius="sm" onPress={() => handleProcess(file.id)}>{t('media.process')}</Button>
+                  <Button size="sm" color="danger" variant="flat" radius="sm" onPress={() => handleDelete(file.id)}>{t('common.delete')}</Button>
                 </div>
               </CardBody>
             </Card>
@@ -151,6 +154,18 @@ export function MediaPage() {
       )}
     </PageShell>
   )
+}
+
+function mediaStatusLabel(status: string, t: ReturnType<typeof useI18n>['t']): string {
+  if (status === 'UPLOADED') return t('mediaStatus.uploaded')
+  if (status === 'EXTRACTING_AUDIO') return t('mediaStatus.extractingAudio')
+  if (status === 'TRANSCRIBING') return t('mediaStatus.transcribing')
+  if (status === 'SUMMARIZING') return t('mediaStatus.summarizing')
+  if (status === 'EXTRACTING_TASKS') return t('mediaStatus.extractingTasks')
+  if (status === 'DONE') return t('status.done')
+  if (status === 'FAILED') return t('status.failed')
+  if (status === 'CANCELLED') return t('status.cancelled')
+  return status
 }
 
 function formatSize(bytes: number) {

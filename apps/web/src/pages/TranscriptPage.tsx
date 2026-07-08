@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Button, Card, CardBody, Chip, Input, ScrollShadow } from '@heroui/react'
+import { Button, Card, CardBody, Chip, Input } from '@heroui/react'
 import { BackButton, EmptyState, LoadingPage, PageShell } from './PageShell'
+import { TEXT_FIELD_PROPS } from '../shared/formControls'
+import { useI18n } from '../shared/i18n'
 
 interface TranscriptSegment {
   id: string
@@ -12,6 +14,7 @@ interface TranscriptSegment {
 }
 
 export function TranscriptPage() {
+  const { t } = useI18n()
   const { id } = useParams<{ id: string }>()
   const [text, setText] = useState('')
   const [segments, setSegments] = useState<TranscriptSegment[]>([])
@@ -49,35 +52,38 @@ export function TranscriptPage() {
     if (id) window.open(`/api/media/${id}/export/transcript.${format}`, '_blank')
   }
 
-  if (loading) return <LoadingPage label="Transcript" />
+  if (loading) return <LoadingPage label={t('transcript.title')} />
 
   return (
     <PageShell
-      title="Transcript"
-      subtitle={`${segments.length} segments · ${text.length.toLocaleString()} characters`}
-      eyebrow="Media"
+      title={t('transcript.title')}
+      subtitle={t('transcript.subtitle', { segments: segments.length, characters: text.length.toLocaleString() })}
+      eyebrow={t('media.title')}
       actions={
-        <div className="flex gap-2">
-          <Button size="sm" variant="flat" radius="sm" onPress={handleCopy}>{copied ? 'Copied' : 'Copy text'}</Button>
-          <Button size="sm" variant="flat" radius="sm" onPress={() => handleExport('txt')}>Export .txt</Button>
-          <Button size="sm" variant="flat" radius="sm" onPress={() => handleExport('json')}>Export .json</Button>
+        <div className="flex flex-col items-end gap-2">
+          <BackButton />
+          <div className="flex gap-2">
+            <Button size="sm" variant="flat" radius="sm" onPress={handleCopy}>{copied ? t('transcript.copied') : t('transcript.copy')}</Button>
+            <Button size="sm" variant="flat" radius="sm" onPress={() => handleExport('txt')}>{t('transcript.exportTxt')}</Button>
+            <Button size="sm" variant="flat" radius="sm" onPress={() => handleExport('json')}>{t('transcript.exportJson')}</Button>
+          </div>
         </div>
       }
       width="xl"
     >
       <Input
-        radius="sm"
-        variant="flat"
+        {...TEXT_FIELD_PROPS}
+        aria-label={t('transcript.search')}
         value={searchQuery}
         onValueChange={setSearchQuery}
-        placeholder="Search transcript"
+        placeholder={t('transcript.search')}
       />
 
       <Card radius="sm" className="border border-default-100 bg-content2">
         <CardBody className="p-0">
-          <ScrollShadow className="h-[620px] p-4">
+          <div className="p-4">
             {filteredSegments.length === 0 ? (
-              <EmptyState title="No transcript data" description={searchQuery ? 'No matching segments.' : 'Process the media file first.'} />
+              <EmptyState title={t('transcript.noData')} description={searchQuery ? t('transcript.noMatches') : t('transcript.processFirst')} />
             ) : (
               <div className="grid gap-2">
                 {filteredSegments.map((segment) => (
@@ -88,11 +94,9 @@ export function TranscriptPage() {
                 ))}
               </div>
             )}
-          </ScrollShadow>
+          </div>
         </CardBody>
       </Card>
-
-      <BackButton />
     </PageShell>
   )
 }
