@@ -14,7 +14,6 @@ export function loadConfig(): WispLocConfig {
     try {
       const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
       const config: WispLocConfig = { ...DEFAULT_CONFIG, ...raw }
-      config.llmModel = DEFAULT_CONFIG.llmModel
       cachedConfig = config
       return config
     } catch {

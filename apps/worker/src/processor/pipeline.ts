@@ -29,9 +29,13 @@ import {
   saveExtractedTasks,
   getJob,
   loadConfig,
+  createLogger,
 } from '@wisploc/core'
 
+const pipelineLog = createLogger('pipeline', 'worker.log')
+
 export async function runPipeline(mediaId: string, jobId: string): Promise<void> {
+  pipelineLog.info('pipeline started', { mediaId, jobId })
   await updateJobProgress(jobId, {
     status: 'PROCESSING',
     progress: 5,
@@ -40,9 +44,23 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
 
   const record = await getMediaRecordRaw(mediaId)
   if (!record) throw new Error('Media not found')
+  pipelineLog.info('media loaded for pipeline', {
+    mediaId,
+    jobId,
+    sourcePath: record.sourcePath,
+    sizeBytes: record.sizeBytes,
+    status: record.status,
+  })
 
   // 1. Probe
   const probe = await probeMedia(record.sourcePath)
+  pipelineLog.info('media probed', {
+    mediaId,
+    jobId,
+    durationSec: probe.durationSec,
+    audioCodec: probe.audioCodec,
+    videoCodec: probe.videoCodec,
+  })
   if (probe.durationSec) {
     await updateMediaDuration(mediaId, probe.durationSec)
   }
@@ -55,7 +73,18 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     const chunksDir = await getChunksDir(mediaId)
     const config = loadConfig()
     const chunkSeconds = Math.max(60, Math.round(config.chunkMinutes * 60))
+    pipelineLog.info('audio chunk extraction started', {
+      mediaId,
+      jobId,
+      chunksDir,
+      chunkSeconds,
+    })
     const chunks = await extractChunks(record.sourcePath, chunksDir, chunkSeconds)
+    pipelineLog.info('audio chunk extraction completed', {
+      mediaId,
+      jobId,
+      chunkCount: chunks.length,
+    })
 
     await createChunksBatch(
       chunks.map((c) => ({
@@ -67,6 +96,8 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       })),
     )
     dbChunks = await listChunksByMedia(mediaId)
+  } else {
+    pipelineLog.info('existing chunks reused', { mediaId, jobId, chunkCount: dbChunks.length })
   }
 
   await updateJobProgress(jobId, { progress: 30, currentStep: 'transcribing' })
@@ -83,7 +114,15 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     const chunk = dbChunks[i]
     if (chunk.status === 'DONE') {
       const existingTranscript = await getChunkTranscriptText(chunk.id)
-      if (existingTranscript.trim()) continue // resume support
+      if (existingTranscript.trim()) {
+        pipelineLog.info('transcription chunk reused', {
+          mediaId,
+          jobId,
+          chunkId: chunk.id,
+          chunkIndex: chunk.index,
+        })
+        continue // resume support
+      }
       await updateChunkStatus(chunk.id, 'PENDING')
     }
 
@@ -94,6 +133,12 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     })
 
     try {
+      pipelineLog.info('transcription chunk started', {
+        mediaId,
+        jobId,
+        chunkId: chunk.id,
+        chunkIndex: chunk.index,
+      })
       const result = await transcribeChunk(chunk.audioPath)
       if (result.segments.length === 0 || !result.text.trim()) {
         throw new Error('whisper-cli produced no transcript segments')
@@ -110,8 +155,23 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       const transcriptPath = await saveRawTranscript(mediaId, chunk.index, result.rawOutput)
       await updateChunkTranscriptPath(chunk.id, transcriptPath)
       await updateChunkStatus(chunk.id, 'DONE')
+      pipelineLog.info('transcription chunk completed', {
+        mediaId,
+        jobId,
+        chunkId: chunk.id,
+        chunkIndex: chunk.index,
+        segmentsCount: result.segments.length,
+        textLength: result.text.length,
+      })
     } catch (err: any) {
       await updateChunkStatus(chunk.id, 'FAILED', err.message)
+      pipelineLog.error('transcription chunk failed', {
+        mediaId,
+        jobId,
+        chunkId: chunk.id,
+        chunkIndex: chunk.index,
+        error: err,
+      })
       throw new Error(`Transcription failed for chunk ${chunk.index}: ${err.message ?? String(err)}`)
     }
   }
@@ -132,6 +192,12 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     const existingSummary = existingChunkSummaries.get(chunk.index)
     if (existingSummary) {
       chunkSummaries.push(existingSummary)
+      pipelineLog.info('chunk summary reused', {
+        mediaId,
+        jobId,
+        chunkId: chunk.id,
+        chunkIndex: chunk.index,
+      })
       continue
     }
 
@@ -143,15 +209,36 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     try {
       const chunkTranscript = await getChunkTranscriptText(chunk.id)
       if (chunkTranscript) {
+        pipelineLog.info('chunk summary started', {
+          mediaId,
+          jobId,
+          chunkId: chunk.id,
+          chunkIndex: chunk.index,
+          transcriptLength: chunkTranscript.length,
+        })
         const cs = await summarizeChunk(chunkTranscript, chunk.index, chunk.startSec, chunk.endSec)
         chunkSummaries.push(cs)
         existingChunkSummaries.set(chunk.index, cs)
         await saveChunkSummary(mediaId, cs)
+        pipelineLog.info('chunk summary completed', {
+          mediaId,
+          jobId,
+          chunkId: chunk.id,
+          chunkIndex: chunk.index,
+          actionItemsCount: cs.actionItems.length,
+        })
       } else {
         throw new Error(`Chunk ${chunk.index} has no transcript text`)
       }
     } catch (err: any) {
       console.error(`[summarize] Chunk ${chunk.index} failed:`, err)
+      pipelineLog.error('chunk summary failed', {
+        mediaId,
+        jobId,
+        chunkId: chunk.id,
+        chunkIndex: chunk.index,
+        error: err,
+      })
       throw new Error(`Summary failed for chunk ${chunk.index}: ${err.message ?? String(err)}`)
     }
   }
@@ -164,12 +251,16 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
 
   // 5. Final summary + extract tasks
   try {
+    pipelineLog.info('final summary started', { mediaId, jobId, chunkSummariesCount: chunkSummaries.length })
     const finalSummary = await summarizeFinal(chunkSummaries)
+    pipelineLog.info('final summary completed', { mediaId, jobId })
 
     await updateJobProgress(jobId, { progress: 93, currentStep: 'extracting_tasks' })
     await updateMediaStatus(mediaId, 'EXTRACTING_TASKS')
 
+    pipelineLog.info('task extraction started', { mediaId, jobId })
     const actionItems = await extractFinalTasks(finalSummary, chunkSummaries)
+    pipelineLog.info('task extraction completed', { mediaId, jobId, actionItemsCount: actionItems.length })
     const summaryWithTasks = {
       ...finalSummary,
       actionItems,
@@ -182,6 +273,7 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     }
   } catch (err: any) {
     console.error('[summarize] Final summary failed:', err)
+    pipelineLog.error('final summary or task extraction failed', { mediaId, jobId, error: err })
     throw new Error(`Final summary failed: ${err.message ?? String(err)}`)
   }
 
@@ -191,6 +283,7 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   await deleteOriginalIfConfigured(record.sourcePath)
   await updateMediaStatus(mediaId, 'DONE')
   await updateJobProgress(jobId, { status: 'DONE', progress: 100, currentStep: 'done' })
+  pipelineLog.info('pipeline completed', { mediaId, jobId })
 }
 
 async function deleteOriginalIfConfigured(sourcePath: string): Promise<void> {
@@ -199,8 +292,10 @@ async function deleteOriginalIfConfigured(sourcePath: string): Promise<void> {
 
   try {
     await fs.rm(sourcePath, { force: true })
+    pipelineLog.info('original uploaded file deleted after processing', { sourcePath })
   } catch (err) {
     console.warn(`[worker] Failed to delete original uploaded file: ${err}`)
+    pipelineLog.warn('original uploaded file deletion failed', { sourcePath, error: err })
   }
 }
 

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { loadConfig } from '../config'
 import { writeManagedOllamaPid } from './runtime'
+import { createLogger } from '../logger'
 import type { ChunkSummary, ExtractedActionItem, FinalSummary } from '@wisploc/shared'
 import {
   DEFAULTS,
@@ -17,6 +18,7 @@ const OLLAMA_REQUEST_TIMEOUT_MS = 600_000
 const MAX_CHUNK_TRANSCRIPT_CHARS = 8_000
 const MAX_FINAL_SUMMARIES_CHARS = 12_000
 const MAX_TASK_EXTRACTION_CHARS = 12_000
+const ollamaLog = createLogger('ollama', 'worker.log')
 
 type OllamaMode =
   | 'chunk-summary'
@@ -90,6 +92,7 @@ const taskExtractionJsonSchema = zodToJsonSchema(taskExtractionSchema)
 
 async function ollamaChat(input: OllamaChatInput): Promise<string> {
   const config = loadConfig()
+  const startedAt = Date.now()
 
   await ensureOllamaReady(config.ollamaHost)
 
@@ -103,7 +106,7 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
 
   const baseOptions = OLLAMA_OPTIONS_BY_MODE[input.mode]
   const body: OllamaChatRequest = {
-    model: DEFAULTS.llmModel,
+    model: config.llmModel || DEFAULTS.llmModel,
     messages,
     stream: false,
     think: false,
@@ -117,6 +120,13 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
 
   let response: Response
   try {
+    ollamaLog.info('ollama chat started', {
+      mode: input.mode,
+      model: body.model,
+      ollamaHost: config.ollamaHost,
+      numPredict: body.options.num_predict,
+      numCtx: body.options.num_ctx,
+    })
     response = await fetch(`${config.ollamaHost}${OLLAMA_CHAT_URL}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -127,11 +137,23 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
     const reason = err.name === 'TimeoutError'
       ? `request timed out after ${Math.round(OLLAMA_REQUEST_TIMEOUT_MS / 1000)}s`
       : err.cause?.message ?? err.message ?? String(err)
+    ollamaLog.error('ollama chat request failed', {
+      mode: input.mode,
+      model: body.model,
+      ollamaHost: config.ollamaHost,
+      error: err,
+    })
     throw new Error(`Ollama request failed at ${config.ollamaHost}: ${reason}`)
   }
 
   if (!response.ok) {
     const text = await response.text()
+    ollamaLog.error('ollama chat api failed', {
+      mode: input.mode,
+      model: body.model,
+      status: response.status,
+      bodyPreview: text.slice(0, 500),
+    })
     throw new Error(`Ollama API error ${response.status}: ${text.slice(0, 500)}`)
   }
 
@@ -141,7 +163,14 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
     }
   }
 
-  return stripThinkBlocks(data.message?.content ?? '')
+  const content = stripThinkBlocks(data.message?.content ?? '')
+  ollamaLog.info('ollama chat completed', {
+    mode: input.mode,
+    model: body.model,
+    durationMs: Date.now() - startedAt,
+    responseLength: content.length,
+  })
+  return content
 }
 
 async function ensureOllamaReady(ollamaHost: string): Promise<void> {
@@ -155,8 +184,10 @@ async function ensureOllamaReady(ollamaHost: string): Promise<void> {
       env: { ...process.env, OLLAMA_HOST: ollamaHost },
     })
     writeManagedOllamaPid(child.pid)
+    ollamaLog.info('ollama service started', { ollamaHost, ollamaBin, pid: child.pid })
     child.unref()
   } catch (err: any) {
+    ollamaLog.error('ollama service start failed', { ollamaHost, ollamaBin, error: err })
     throw new Error(`Failed to start Ollama service from ${ollamaBin}: ${err.message ?? String(err)}`)
   }
 
@@ -192,6 +223,7 @@ async function parseValidateOrRepair<T>(
     return parseAndValidate(raw, schema, label)
   } catch (firstError) {
     const validationError = firstError instanceof Error ? firstError.message : String(firstError)
+    ollamaLog.warn('ollama json validation failed, repairing once', { label, validationError })
     const repairedRaw = await ollamaChat({
       mode: 'json-repair',
       jsonSchema,
@@ -203,7 +235,9 @@ async function parseValidateOrRepair<T>(
       }),
     })
 
-    return parseAndValidate(repairedRaw, schema, label)
+    const repaired = parseAndValidate(repairedRaw, schema, label)
+    ollamaLog.info('ollama json repair completed', { label })
+    return repaired
   }
 }
 
