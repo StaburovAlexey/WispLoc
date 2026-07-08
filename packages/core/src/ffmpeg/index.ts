@@ -1,6 +1,8 @@
 import { execa } from 'execa'
 import { loadConfig } from '../config'
-import { PATHS } from '@wisploc/shared'
+import { createLogger } from '../logger'
+
+const ffmpegLog = createLogger('ffmpeg', 'worker.log')
 
 export interface MediaProbe {
   durationSec: number | null
@@ -15,6 +17,7 @@ export interface MediaProbe {
 /** Probe media file metadata using ffprobe. */
 export async function probeMedia(inputPath: string): Promise<MediaProbe> {
   const config = loadConfig()
+  const startedAt = Date.now()
 
   const args = [
     '-v', 'quiet',
@@ -26,12 +29,14 @@ export async function probeMedia(inputPath: string): Promise<MediaProbe> {
 
   let stdout: string
   try {
+    ffmpegLog.info('ffprobe started', { inputPath, command: config.ffmpegPath.replace('ffmpeg', 'ffprobe') })
     const result = await execa(config.ffmpegPath.replace('ffmpeg', 'ffprobe'), args, {
       timeout: 30_000,
     })
     stdout = result.stdout
-  } catch {
+  } catch (err) {
     // Try PATH
+    ffmpegLog.warn('configured ffprobe failed, trying PATH fallback', { inputPath, error: err })
     const result = await execa('ffprobe', args, { timeout: 30_000 })
     stdout = result.stdout
   }
@@ -41,7 +46,7 @@ export async function probeMedia(inputPath: string): Promise<MediaProbe> {
   const audioStream = (parsed.streams ?? []).find((s: any) => s.codec_type === 'audio')
   const videoStream = (parsed.streams ?? []).find((s: any) => s.codec_type === 'video')
 
-  return {
+  const probe = {
     durationSec: format.duration ? parseFloat(format.duration) : null,
     audioCodec: audioStream?.codec_name ?? null,
     videoCodec: videoStream?.codec_name ?? null,
@@ -50,6 +55,8 @@ export async function probeMedia(inputPath: string): Promise<MediaProbe> {
     channels: audioStream?.channels ?? null,
     bitrate: format.bit_rate ? parseInt(format.bit_rate, 10) : null,
   }
+  ffmpegLog.info('ffprobe completed', { inputPath, durationMs: Date.now() - startedAt, ...probe })
+  return probe
 }
 
 export interface ChunkResult {
@@ -70,6 +77,7 @@ export async function extractChunks(
   chunkSeconds: number = 300,
 ): Promise<ChunkResult[]> {
   const config = loadConfig()
+  const startedAt = Date.now()
 
   const outputPattern = `${outputDir}/chunk_%05d.wav`
 
@@ -87,9 +95,11 @@ export async function extractChunks(
   ]
 
   try {
+    ffmpegLog.info('ffmpeg chunk extraction started', { inputPath, outputDir, chunkSeconds, command: config.ffmpegPath })
     await execa(config.ffmpegPath, args, { timeout: 600_000 })
-  } catch {
+  } catch (err) {
     // Try PATH fallback
+    ffmpegLog.warn('configured ffmpeg failed, trying PATH fallback', { inputPath, outputDir, error: err })
     await execa('ffmpeg', args, { timeout: 600_000 })
   }
 
@@ -100,7 +110,7 @@ export async function extractChunks(
     .filter((f) => /^chunk_\d{5}\.wav$/.test(f))
     .sort()
 
-  return chunkFiles.map((file, index) => {
+  const chunks = chunkFiles.map((file, index) => {
     const startSec = index * chunkSeconds
     // Estimate end — real duration would require probing each chunk
     return {
@@ -110,6 +120,13 @@ export async function extractChunks(
       audioPath: `${outputDir}/${file}`,
     }
   })
+  ffmpegLog.info('ffmpeg chunk extraction completed', {
+    inputPath,
+    outputDir,
+    chunkCount: chunks.length,
+    durationMs: Date.now() - startedAt,
+  })
+  return chunks
 }
 
 /** Build the ffmpeg path from config, falling back to PATH. */

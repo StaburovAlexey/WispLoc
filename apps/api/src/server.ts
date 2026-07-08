@@ -15,8 +15,10 @@ import { tasksRoutes } from './routes/tasks'
 import { integrationRoutes } from './routes/integrations'
 import { settingsRoutes } from './routes/settings'
 import { maintenanceRoutes } from './routes/maintenance'
+import { loadConfig } from '@wisploc/core'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+type CorsOrigin = string | boolean | RegExp | Array<string | boolean | RegExp>
 
 /** Resolve the web build directory relative to the monorepo root. */
 function findWebDist(): string | null {
@@ -34,13 +36,14 @@ function findWebDist(): string | null {
 }
 
 export async function createServer() {
+  const config = loadConfig()
   const app = Fastify({
     logger: { level: 'info' },
   })
 
   // CORS
   await app.register(cors, {
-    origin: true,
+    origin: buildAllowedOrigins(config.appHost, config.appPort),
     credentials: true,
   })
 
@@ -80,4 +83,23 @@ export async function createServer() {
   }
 
   return app
+}
+
+function buildAllowedOrigins(host: string, port: number) {
+  const allowed = new Set([
+    `http://${host}:${port}`,
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+  ])
+
+  return (origin: string | undefined, callback: (err: Error | null, origin: CorsOrigin) => void) => {
+    if (!origin || allowed.has(origin)) {
+      callback(null, true)
+      return
+    }
+
+    callback(null, false)
+  }
 }

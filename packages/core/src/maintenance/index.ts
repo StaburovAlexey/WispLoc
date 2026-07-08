@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { execa } from 'execa'
 import { PATHS } from '@wisploc/shared'
 import { loadConfig, reloadConfig, saveConfig } from '../config'
@@ -6,8 +8,10 @@ import { getPrisma } from '../database'
 import { listLocalOllamaModels } from '../ollama/models'
 import { stopManagedOllama } from '../ollama/runtime'
 import { listWhisperModels } from '../whisper/models'
+import { createLogger } from '../logger'
 
 const prisma = getPrisma()
+const maintenanceLog = createLogger('maintenance', 'maintenance.log')
 
 export type MaintenanceResult = {
   ok: true
@@ -28,6 +32,7 @@ export async function getMaintenanceStatus() {
 export async function deleteRuntimeDependencies(): Promise<MaintenanceResult> {
   await assertNoActiveJobs()
   stopManagedOllama()
+  maintenanceLog.info('delete runtime dependencies started')
 
   const deleted: string[] = []
   const skipped: string[] = []
@@ -42,6 +47,8 @@ export async function deleteRuntimeDependencies(): Promise<MaintenanceResult> {
     `${PATHS.bin}/whisper-cli.exe`,
     `${PATHS.bin}/ollama.exe`,
     `${PATHS.home}/lib/ollama`,
+    `${PATHS.home}/ollama`,
+    `${PATHS.home}/ollama-install.sh`,
     ...whisperModelPaths,
   ]) {
     await removePath(target, deleted, skipped)
@@ -54,22 +61,32 @@ export async function deleteRuntimeDependencies(): Promise<MaintenanceResult> {
   config.setupCompleted = false
   saveConfig(config)
 
+  maintenanceLog.info('delete runtime dependencies completed', {
+    deletedCount: deleted.length,
+    skippedCount: skipped.length,
+  })
   return { ok: true, deleted, skipped }
 }
 
 export async function clearTemporaryFiles(): Promise<MaintenanceResult> {
   await assertNoActiveJobs()
+  maintenanceLog.info('clear temporary files started')
   const deleted: string[] = []
   const skipped: string[] = []
   await removePath(PATHS.chunks, deleted, skipped)
   await removePath(PATHS.exports, deleted, skipped)
   await fs.mkdir(PATHS.chunks, { recursive: true })
   await fs.mkdir(PATHS.exports, { recursive: true })
+  maintenanceLog.info('clear temporary files completed', {
+    deletedCount: deleted.length,
+    skippedCount: skipped.length,
+  })
   return { ok: true, deleted, skipped }
 }
 
 export async function clearProcessedResults(): Promise<MaintenanceResult> {
   await assertNoActiveJobs()
+  maintenanceLog.info('clear processed results started')
   const deleted: string[] = []
   const skipped: string[] = []
   await removePath(PATHS.transcripts, deleted, skipped)
@@ -93,12 +110,17 @@ export async function clearProcessedResults(): Promise<MaintenanceResult> {
     },
   })
 
+  maintenanceLog.info('clear processed results completed', {
+    deletedCount: deleted.length,
+    skippedCount: skipped.length,
+  })
   return { ok: true, deleted, skipped }
 }
 
 export async function resetAllLocalData(): Promise<MaintenanceResult> {
   await assertNoActiveJobs()
   stopManagedOllama()
+  maintenanceLog.warn('reset all local data started')
 
   const deleted: string[] = []
   const skipped: string[] = []
@@ -128,6 +150,9 @@ export async function resetAllLocalData(): Promise<MaintenanceResult> {
     PATHS.logs,
     PATHS.config,
     `${PATHS.home}/lib/ollama`,
+    `${PATHS.home}/lib`,
+    `${PATHS.home}/ollama`,
+    `${PATHS.home}/ollama-install.sh`,
     `${PATHS.home}/wisploc.pid`,
     `${PATHS.home}/ollama.pid`,
   ]) {
@@ -135,6 +160,10 @@ export async function resetAllLocalData(): Promise<MaintenanceResult> {
   }
   reloadConfig()
 
+  maintenanceLog.warn('reset all local data completed', {
+    deletedCount: deleted.length,
+    skippedCount: skipped.length,
+  })
   return { ok: true, deleted, skipped }
 }
 
@@ -143,6 +172,7 @@ async function assertNoActiveJobs(): Promise<void> {
     where: { status: { in: ['PENDING', 'PROCESSING'] } },
   })
   if (count > 0) {
+    maintenanceLog.warn('maintenance blocked by active jobs', { activeJobs: count })
     throw new Error('Maintenance is blocked while jobs are pending or processing')
   }
 }
@@ -168,8 +198,10 @@ async function removePath(target: string, deleted: string[], skipped: string[]):
   try {
     await fs.rm(target, { recursive: true, force: true })
     deleted.push(target)
-  } catch {
+    maintenanceLog.info('path removed', { target })
+  } catch (err) {
     skipped.push(target)
+    maintenanceLog.warn('path removal skipped', { target, error: err })
   }
 }
 
@@ -178,20 +210,25 @@ async function removeAllLocalOllamaModels(deleted: string[], skipped: string[]):
   const canManageLocalModel = config.ollamaHost === 'http://127.0.0.1:11434'
   if (!canManageLocalModel) {
     skipped.push('ollama models: non-local ollamaHost')
+    maintenanceLog.warn('ollama model cleanup skipped for non-local host', { ollamaHost: config.ollamaHost })
     return
   }
 
   const command = `${PATHS.bin}/${process.platform === 'win32' ? 'ollama.exe' : 'ollama'}`
-  let models: string[] = []
+  let models: string[]
   try {
     models = (await listLocalOllamaModels()).map((model) => model.name)
-  } catch {
+  } catch (err) {
     skipped.push('ollama models: list failed')
+    maintenanceLog.warn('ollama model list failed during cleanup', { error: err })
+    await removeLocalOllamaModelStorage(deleted, skipped)
     return
   }
 
   if (models.length === 0) {
     skipped.push('ollama models: none installed')
+    maintenanceLog.info('ollama model cleanup found no installed models')
+    await removeLocalOllamaModelStorage(deleted, skipped)
     return
   }
 
@@ -199,8 +236,25 @@ async function removeAllLocalOllamaModels(deleted: string[], skipped: string[]):
     try {
       await execa(command, ['rm', model], { timeout: 120_000 })
       deleted.push(`ollama model ${model}`)
-    } catch {
+      maintenanceLog.info('ollama model removed', { model })
+    } catch (err) {
       skipped.push(`ollama model ${model}`)
+      maintenanceLog.warn('ollama model removal failed', { model, error: err })
     }
+  }
+
+  await removeLocalOllamaModelStorage(deleted, skipped)
+}
+
+async function removeLocalOllamaModelStorage(deleted: string[], skipped: string[]): Promise<void> {
+  const ollamaHome = process.env.OLLAMA_MODELS
+    ? path.dirname(process.env.OLLAMA_MODELS)
+    : path.join(os.homedir(), '.ollama')
+
+  for (const target of [
+    process.env.OLLAMA_MODELS ?? path.join(ollamaHome, 'models'),
+    path.join(ollamaHome, 'cache'),
+  ]) {
+    await removePath(target, deleted, skipped)
   }
 }

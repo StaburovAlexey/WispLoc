@@ -2,6 +2,9 @@ import { execa } from 'execa'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { loadConfig } from '../config'
+import { createLogger } from '../logger'
+
+const whisperLog = createLogger('whisper', 'worker.log')
 
 export interface WhisperSegment {
   start: number   // seconds
@@ -26,23 +29,32 @@ export async function transcribeChunk(
   language?: string,
 ): Promise<WhisperResult> {
   const config = loadConfig()
+  const startedAt = Date.now()
+  const selectedLanguage = language || config.language || 'ru'
 
   const args = [
     '-m', config.whisperModelPath,
     '-f', wavPath,
-    '-l', language || config.language || 'ru',
+    '-l', selectedLanguage,
     '--output-json',
   ]
 
   let stdout: string
   try {
+    whisperLog.info('whisper transcription started', {
+      wavPath,
+      language: selectedLanguage,
+      command: config.whisperBinPath,
+      modelPath: config.whisperModelPath,
+    })
     const result = await execa(config.whisperBinPath, args, {
       env: runtimeBinaryEnv(path.dirname(config.whisperBinPath)),
       timeout: 600_000, // 10 min max per chunk
     })
     stdout = result.stdout
-  } catch {
+  } catch (err) {
     // Fallback to PATH
+    whisperLog.warn('configured whisper-cli failed, trying PATH fallback', { wavPath, error: err })
     const result = await execa('whisper-cli', args, {
       env: runtimeBinaryEnv(path.dirname(config.whisperBinPath)),
       timeout: 600_000,
@@ -52,7 +64,16 @@ export async function transcribeChunk(
 
   const fileOutput = await readWhisperJsonOutput(wavPath)
   const rawOutput = fileOutput || stdout
-  return parseWhisperOutput(rawOutput, wavPath)
+  const parsed = parseWhisperOutput(rawOutput)
+  whisperLog.info('whisper transcription completed', {
+    wavPath,
+    language: selectedLanguage,
+    segmentsCount: parsed.segments.length,
+    textLength: parsed.text.length,
+    durationMs: Date.now() - startedAt,
+    usedSidecarOutput: Boolean(fileOutput),
+  })
+  return parsed
 }
 
 /**
@@ -61,7 +82,7 @@ export async function transcribeChunk(
  * Whisper outputs one JSON object per line with transcription results.
  * We extract the text and any segment-level data.
  */
-function parseWhisperOutput(stdout: string, wavPath: string): WhisperResult {
+function parseWhisperOutput(stdout: string): WhisperResult {
   const trimmed = stdout.trim()
   const segments: WhisperSegment[] = []
   let fullText = ''

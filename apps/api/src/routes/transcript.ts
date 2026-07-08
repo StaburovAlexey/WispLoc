@@ -2,9 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   getFullTranscript,
   getSegments,
-  deleteTranscript,
 } from '@wisploc/core'
-import fs from 'node:fs'
 
 export async function transcriptRoutes(app: FastifyInstance) {
   // GET /api/media/:mediaId/transcript — full transcript with segments
