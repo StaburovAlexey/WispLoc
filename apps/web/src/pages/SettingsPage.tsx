@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, CardBody, CardHeader, Divider, Input, Select, SelectItem, Switch } from '@heroui/react'
 import { LoadingPage, PageShell } from './PageShell'
+import { friendlyError } from '../shared/errors'
+import { FIELD_PROPS, TEXT_FIELD_PROPS } from '../shared/formControls'
+import { useI18n, type TranslationKey } from '../shared/i18n'
 
 interface SettingsData {
   language: string
@@ -22,8 +25,8 @@ interface WhisperModel {
 
 type MaintenanceAction = {
   key: 'delete-dependencies' | 'clear-temp' | 'clear-results' | 'reset-all'
-  title: string
-  description: string
+  titleKey: TranslationKey
+  descriptionKey: TranslationKey
   endpoint: string
   confirmation?: 'DELETE'
 }
@@ -31,32 +34,33 @@ type MaintenanceAction = {
 const MAINTENANCE_ACTIONS: MaintenanceAction[] = [
   {
     key: 'delete-dependencies',
-    title: 'Delete runtime dependencies',
-    description: 'Removes FFmpeg, whisper-cli, all Whisper models, local Ollama runtime, and all local Ollama models when possible. Setup will need to run again.',
+    titleKey: 'settings.deleteDepsTitle',
+    descriptionKey: 'settings.deleteDepsDescription',
     endpoint: '/api/maintenance/delete-dependencies',
   },
   {
     key: 'clear-temp',
-    title: 'Clear temporary files',
-    description: 'Removes generated WAV chunks and exports. Transcripts, summaries, uploads, and database records stay intact.',
+    titleKey: 'settings.clearTempTitle',
+    descriptionKey: 'settings.clearTempDescription',
     endpoint: '/api/maintenance/clear-temp',
   },
   {
     key: 'clear-results',
-    title: 'Clear processed results',
-    description: 'Removes chunks, transcripts, summaries, tasks, and jobs from the database. Uploaded originals stay intact.',
+    titleKey: 'settings.clearResultsTitle',
+    descriptionKey: 'settings.clearResultsDescription',
     endpoint: '/api/maintenance/clear-results',
   },
   {
     key: 'reset-all',
-    title: 'Delete all local app data',
-    description: 'Removes uploads, generated data, integrations, setup state, config, binaries, Whisper models, and all local Ollama models. Requires DELETE confirmation.',
+    titleKey: 'settings.resetAllTitle',
+    descriptionKey: 'settings.resetAllDescription',
     endpoint: '/api/maintenance/reset-all',
     confirmation: 'DELETE',
   },
 ]
 
 export function SettingsPage() {
+  const { t, language } = useI18n()
   const [form, setForm] = useState<SettingsData | null>(null)
   const [whisperModels, setWhisperModels] = useState<WhisperModel[]>([])
   const [loadingWhisperModels, setLoadingWhisperModels] = useState(false)
@@ -87,11 +91,11 @@ export function SettingsPage() {
       if (!res.ok) throw new Error(body.error ?? 'Failed to load Whisper models')
       setWhisperModels(body)
     } catch (err: any) {
-      setWhisperModelError(err.message ?? 'Failed to load Whisper models')
+      setWhisperModelError(friendlyError(err.message, t('settings.loadWhisperModelsFailed'), language))
     } finally {
       setLoadingWhisperModels(false)
     }
-  }, [])
+  }, [language, t])
 
   useEffect(() => {
     loadSettings()
@@ -127,12 +131,16 @@ export function SettingsPage() {
       })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Maintenance failed')
-      setMaintenanceResult(`${maintenanceAction.title} completed. Deleted: ${body.deleted?.length ?? 0}. Skipped: ${body.skipped?.length ?? 0}.`)
+      setMaintenanceResult(t('settings.maintenanceResult', {
+        title: t(maintenanceAction.titleKey),
+        deleted: body.deleted?.length ?? 0,
+        skipped: body.skipped?.length ?? 0,
+      }))
       setMaintenanceAction(null)
       setMaintenanceConfirmation('')
       loadSettings()
     } catch (err: any) {
-      setMaintenanceError(err.message ?? 'Maintenance failed')
+      setMaintenanceError(friendlyError(err.message, t('settings.maintenanceFailed'), language))
     } finally {
       setMaintenanceRunning(false)
     }
@@ -148,7 +156,7 @@ export function SettingsPage() {
       setWhisperModels((models) => models.map((model) => ({ ...model, selected: model.key === body.key })))
       loadSettings()
     } catch (err: any) {
-      setWhisperModelError(err.message ?? 'Failed to select Whisper model')
+      setWhisperModelError(friendlyError(err.message, t('settings.selectWhisperModelFailed'), language))
     }
   }
 
@@ -163,50 +171,50 @@ export function SettingsPage() {
       setWhisperModels((models) => models.map((model) => model.key === body.key ? body : model))
       await selectInstalledWhisperModel(modelKey)
     } catch (err: any) {
-      setWhisperModelError(err.message ?? 'Failed to install Whisper model')
+      setWhisperModelError(friendlyError(err.message, t('settings.installWhisperModelFailed'), language))
     } finally {
       setInstallingWhisperModel(null)
       loadWhisperModels()
     }
   }
 
-  if (!form) return <LoadingPage label="Settings" />
+  if (!form) return <LoadingPage label={t('settings.title')} />
 
   return (
     <PageShell
-      title="Settings"
-      subtitle="Local processing defaults"
-      eyebrow="Preferences"
-      actions={<Button color="primary" radius="sm" isLoading={saving} onPress={handleSave}>{saved ? 'Saved' : 'Save settings'}</Button>}
+      title={t('settings.title')}
+      subtitle={t('settings.subtitle')}
+      eyebrow={t('settings.eyebrow')}
+      actions={<Button color="primary" radius="sm" isLoading={saving} onPress={handleSave}>{saved ? t('common.saved') : t('settings.save')}</Button>}
       width="lg"
     >
-      {saved && <Alert color="success" variant="flat" title="Settings saved" description="New processing jobs will use the updated defaults." />}
+      {saved && <Alert color="success" variant="flat" title={t('settings.savedTitle')} description={t('settings.savedDescription')} />}
 
       <Card radius="sm" className="border border-default-100 bg-content2">
         <CardBody className="grid grid-cols-2 gap-4 p-6">
           <Select
-            label="Transcription language"
-            radius="sm"
+            {...FIELD_PROPS}
+            label={t('settings.transcriptionLanguage')}
             selectedKeys={[form.language]}
             onSelectionChange={(keys) => setForm({ ...form, language: String(Array.from(keys)[0] ?? 'ru') })}
           >
-            <SelectItem key="ru">Russian (ru)</SelectItem>
-            <SelectItem key="en">English (en)</SelectItem>
+            <SelectItem key="ru">{t('settings.russian')}</SelectItem>
+            <SelectItem key="en">{t('settings.english')}</SelectItem>
           </Select>
 
           <Select
-            label="Summary and tasks language"
-            radius="sm"
+            {...FIELD_PROPS}
+            label={t('settings.summaryLanguage')}
             selectedKeys={[form.summaryLanguage]}
             onSelectionChange={(keys) => setForm({ ...form, summaryLanguage: String(Array.from(keys)[0] ?? 'ru') })}
           >
-            <SelectItem key="ru">Russian (ru)</SelectItem>
-            <SelectItem key="en">English (en)</SelectItem>
+            <SelectItem key="ru">{t('settings.russian')}</SelectItem>
+            <SelectItem key="en">{t('settings.english')}</SelectItem>
           </Select>
 
           <Input
-            label="Ollama host"
-            radius="sm"
+            {...TEXT_FIELD_PROPS}
+            label={t('settings.ollamaHost')}
             value={form.ollamaHost}
             onValueChange={(value) => setForm({ ...form, ollamaHost: value })}
           />
@@ -214,8 +222,8 @@ export function SettingsPage() {
           <div className="col-span-2 rounded-small bg-content1 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="font-medium">Transcription model</p>
-                <p className="text-small text-default-500">Multilingual Whisper models only. Missing models are installed on demand.</p>
+                <p className="font-medium">{t('settings.transcriptionModel')}</p>
+                <p className="text-small text-default-500">{t('settings.transcriptionModelDescription')}</p>
               </div>
               <Button
                 radius="sm"
@@ -223,7 +231,7 @@ export function SettingsPage() {
                 isLoading={loadingWhisperModels}
                 onPress={loadWhisperModels}
               >
-                Refresh
+                {t('common.refresh')}
               </Button>
             </div>
 
@@ -231,7 +239,7 @@ export function SettingsPage() {
               <Alert
                 color="danger"
                 variant="flat"
-                title="Whisper model error"
+                title={t('settings.whisperModelError')}
                 description={whisperModelError}
                 className="mb-3"
               />
@@ -253,7 +261,7 @@ export function SettingsPage() {
                     <Alert
                       color={model.installed ? 'success' : 'warning'}
                       variant="flat"
-                      title={model.installed ? (model.selected ? 'Selected' : 'Installed') : 'Not installed'}
+                      title={model.installed ? (model.selected ? t('common.selected') : t('common.installed')) : t('common.notInstalled')}
                     />
                     {model.installed ? (
                       <Button
@@ -263,7 +271,7 @@ export function SettingsPage() {
                         isDisabled={model.selected}
                         onPress={() => selectInstalledWhisperModel(model.key)}
                       >
-                        {model.selected ? 'Selected' : 'Use this model'}
+                        {model.selected ? t('common.selected') : t('settings.useThisModel')}
                       </Button>
                     ) : (
                       <Button
@@ -273,7 +281,7 @@ export function SettingsPage() {
                         isDisabled={installingWhisperModel !== null}
                         onPress={() => installSelectedWhisperModel(model.key)}
                       >
-                        Install model
+                        {t('settings.installModel')}
                       </Button>
                     )}
                   </CardBody>
@@ -288,7 +296,7 @@ export function SettingsPage() {
               isSelected={form.cleanChunks}
               onValueChange={(cleanChunks) => setForm({ ...form, cleanChunks })}
             >
-              Clean temporary WAV chunks after successful processing
+              {t('settings.cleanChunks')}
             </Switch>
           </div>
 
@@ -298,7 +306,7 @@ export function SettingsPage() {
               isSelected={form.deleteOriginalAfterProcessing}
               onValueChange={(deleteOriginalAfterProcessing) => setForm({ ...form, deleteOriginalAfterProcessing })}
             >
-              Delete original uploaded file after successful processing
+              {t('settings.deleteOriginal')}
             </Switch>
           </div>
         </CardBody>
@@ -306,28 +314,28 @@ export function SettingsPage() {
 
       <Card radius="sm" className="border border-danger-200 bg-content2">
         <CardHeader className="flex flex-col items-start gap-1 p-6">
-          <h2 className="font-semibold">Maintenance</h2>
-          <p className="text-small text-default-500">Cleanup actions are blocked while jobs are pending or processing.</p>
+          <h2 className="font-semibold">{t('settings.maintenance')}</h2>
+          <p className="text-small text-default-500">{t('settings.maintenanceDescription')}</p>
         </CardHeader>
         <Divider />
         <CardBody className="gap-4 p-6">
-          {maintenanceResult && <Alert color="success" variant="flat" title="Maintenance completed" description={maintenanceResult} />}
-          {maintenanceError && <Alert color="danger" variant="flat" title="Maintenance failed" description={maintenanceError} />}
+          {maintenanceResult && <Alert color="success" variant="flat" title={t('settings.maintenanceCompleted')} description={maintenanceResult} />}
+          {maintenanceError && <Alert color="danger" variant="flat" title={t('settings.maintenanceFailed')} description={maintenanceError} />}
 
           <div className="grid gap-3">
             {MAINTENANCE_ACTIONS.map((action) => (
               <div key={action.key} className="flex items-center justify-between gap-4 rounded-small bg-content1 p-4">
                 <div className="space-y-1">
-                  <p className="font-medium">{action.title}</p>
-                  <p className="text-small text-default-500">{action.description}</p>
+                  <p className="font-medium">{t(action.titleKey)}</p>
+                  <p className="text-small text-default-500">{t(action.descriptionKey)}</p>
                 </div>
-                <Button color="danger" variant="flat" radius="sm" onPress={() => {
+                <Button className="w-28 shrink-0" color="danger" variant="flat" radius="sm" onPress={() => {
                   setMaintenanceAction(action)
                   setMaintenanceConfirmation('')
                   setMaintenanceError(null)
                   setMaintenanceResult(null)
                 }}>
-                  Run
+                  {t('common.run')}
                 </Button>
               </div>
             ))}
@@ -339,13 +347,13 @@ export function SettingsPage() {
                 <Alert
                   color="danger"
                   variant="flat"
-                  title={maintenanceAction.title}
-                  description={maintenanceAction.description}
+                  title={t(maintenanceAction.titleKey)}
+                  description={t(maintenanceAction.descriptionKey)}
                 />
                 {maintenanceAction.confirmation && (
                   <Input
-                    label="Type DELETE to confirm"
-                    radius="sm"
+                    {...TEXT_FIELD_PROPS}
+                    label={t('settings.confirmDelete')}
                     value={maintenanceConfirmation}
                     onValueChange={setMaintenanceConfirmation}
                   />
@@ -358,10 +366,10 @@ export function SettingsPage() {
                     isDisabled={!!maintenanceAction.confirmation && maintenanceConfirmation !== maintenanceAction.confirmation}
                     onPress={runMaintenance}
                   >
-                    Confirm
+                    {t('common.confirm')}
                   </Button>
                   <Button variant="flat" radius="sm" onPress={() => setMaintenanceAction(null)}>
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                 </div>
               </CardBody>

@@ -8,11 +8,13 @@ import {
   Chip,
   Divider,
   Progress,
-  ScrollShadow,
   Snippet,
   Spinner,
 } from '@heroui/react'
 import type { SetupEvent, SetupStatusDto, SetupStep } from '@wisploc/shared'
+import { AppTopBar } from './PageShell'
+import { friendlyError } from '../shared/errors'
+import { useI18n, type TranslationKey } from '../shared/i18n'
 
 interface StepState {
   step: SetupStep
@@ -21,28 +23,28 @@ interface StepState {
   error?: string
 }
 
-const STEP_LABELS: Record<SetupStep, string> = {
-  storage: 'Storage',
-  database: 'SQLite',
-  ffmpeg: 'FFmpeg',
-  'whisper-cli': 'whisper.cpp',
-  'whisper-model': 'Whisper model',
-  ollama: 'Ollama',
-  'llm-model': 'qwen3:4b',
-  config: 'Config',
-  doctor: 'Doctor',
+const STEP_LABEL_KEYS: Record<SetupStep, TranslationKey> = {
+  storage: 'setup.step.storage',
+  database: 'setup.step.database',
+  ffmpeg: 'setup.step.ffmpeg',
+  'whisper-cli': 'setup.step.whisperCli',
+  'whisper-model': 'setup.step.whisperModel',
+  ollama: 'setup.step.ollama',
+  'llm-model': 'setup.step.llmModel',
+  config: 'setup.step.config',
+  doctor: 'setup.step.doctor',
 }
 
-const STEP_DESCRIPTIONS: Record<SetupStep, string> = {
-  storage: '~/.wisploc runtime directories',
-  database: 'Local SQLite database and Prisma schema',
-  ffmpeg: 'Local media probe and chunk extraction binary',
-  'whisper-cli': 'Local whisper.cpp command-line binary',
-  'whisper-model': 'Multilingual ggml-base.bin model',
-  ollama: 'Local LLM runtime service',
-  'llm-model': 'qwen3:4b model pulled into Ollama',
-  config: 'Validated local config paths',
-  doctor: 'Final dependency health check',
+const STEP_DESCRIPTION_KEYS: Record<SetupStep, TranslationKey> = {
+  storage: 'setup.desc.storage',
+  database: 'setup.desc.database',
+  ffmpeg: 'setup.desc.ffmpeg',
+  'whisper-cli': 'setup.desc.whisperCli',
+  'whisper-model': 'setup.desc.whisperModel',
+  ollama: 'setup.desc.ollama',
+  'llm-model': 'setup.desc.llmModel',
+  config: 'setup.desc.config',
+  doctor: 'setup.desc.doctor',
 }
 
 const DEFAULT_STEPS: StepState[] = [
@@ -58,6 +60,7 @@ const DEFAULT_STEPS: StepState[] = [
 ]
 
 export function SetupPage() {
+  const { t, language } = useI18n()
   const [installing, setInstalling] = useState(false)
   const [steps, setSteps] = useState<StepState[]>(DEFAULT_STEPS)
   const [complete, setComplete] = useState(false)
@@ -68,7 +71,7 @@ export function SetupPage() {
   const applySetupStatus = useCallback((dto: SetupStatusDto) => {
     setComplete(dto.setupCompleted)
     setInstalling(dto.status === 'RUNNING')
-    setSetupError(dto.status === 'FAILED' ? dto.errorMessage ?? 'Setup failed' : null)
+    setSetupError(dto.status === 'FAILED' ? friendlyError(dto.errorMessage, t('setup.failedFallback'), language) : null)
     setLogs(dto.logs ?? [])
     setSetupProgress(dto.progress ?? 0)
     setSteps((prev) =>
@@ -77,7 +80,7 @@ export function SetupPage() {
         return mapped ? { ...step, status: mapped.status, error: mapped.error, message: mapped.message } : step
       }),
     )
-  }, [])
+  }, [language, t])
 
   const fetchSetupStatus = useCallback(() => {
     fetch('/api/setup/status')
@@ -122,10 +125,10 @@ export function SetupPage() {
         setSteps((prev) => updateStep(prev, event.step, { status: 'completed', message: event.message }))
         break
       case 'step-failed':
-        setSteps((prev) => updateStep(prev, event.step, { status: 'failed', error: event.error }))
+        setSteps((prev) => updateStep(prev, event.step, { status: 'failed', error: friendlyError(event.error, t('setup.stepFailedFallback'), language) }))
         break
       case 'setup-failed':
-        setSetupError(event.error)
+        setSetupError(friendlyError(event.error, t('setup.failedFallback'), language))
         setInstalling(false)
         break
       case 'setup-completed':
@@ -134,7 +137,7 @@ export function SetupPage() {
         setInstalling(false)
         break
     }
-  }, [])
+  }, [language, t])
 
   const startSetup = async () => {
     setInstalling(true)
@@ -150,7 +153,7 @@ export function SetupPage() {
         setSetupError(null)
       } else {
         setInstalling(false)
-        setSetupError(body?.message ?? 'Failed to start setup')
+        setSetupError(body?.message ?? t('setup.startFailed'))
       }
     }
   }
@@ -164,33 +167,37 @@ export function SetupPage() {
 
   if (complete) {
     return (
-      <main data-theme="dark" className="dark min-h-screen bg-background text-foreground p-8">
-        <Card radius="sm" className="mx-auto mt-24 max-w-xl">
-          <CardBody className="items-start gap-5 p-8">
-            <Chip color="success" variant="flat" size="lg">Ready</Chip>
-            <div>
-              <h1 className="text-4xl font-bold">WispLoc</h1>
-              <p className="text-default-500">All local processing components are installed.</p>
-            </div>
-            <Button color="primary" size="lg" radius="sm" onPress={() => (window.location.href = '/dashboard')}>
-              Open Dashboard
-            </Button>
-          </CardBody>
-        </Card>
+      <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
+        <AppTopBar />
+        <div className="px-4 py-8 lg:px-8">
+          <Card radius="sm" className="mx-auto mt-16 max-w-xl">
+            <CardBody className="items-start gap-5 p-8">
+              <Chip color="success" variant="flat" size="lg">{t('setup.ready')}</Chip>
+              <div>
+                <h1 className="text-4xl font-bold">WispLoc</h1>
+                <p className="text-default-500">{t('setup.readyDescription')}</p>
+              </div>
+              <Button color="primary" size="lg" radius="sm" onPress={() => (window.location.href = '/dashboard')}>
+                {t('setup.openDashboard')}
+              </Button>
+            </CardBody>
+          </Card>
+        </div>
       </main>
     )
   }
 
   return (
-    <main data-theme="dark" className="dark min-h-screen min-w-[1180px] bg-background text-foreground p-8">
-      <div className="mx-auto grid w-[1180px] grid-cols-[740px_400px] gap-6">
+    <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
+      <AppTopBar />
+      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[minmax(0,740px)_400px] lg:px-8">
         <Card radius="sm" className="overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between p-6">
             <div className="space-y-2">
-              <Chip variant="flat" color="primary" radius="sm">Local setup</Chip>
+              <Chip variant="flat" color="primary" radius="sm">{t('setup.eyebrow')}</Chip>
               <div>
                 <h1 className="text-4xl font-bold">WispLoc</h1>
-                <p className="text-default-500">Desktop installer for local audio/video processing.</p>
+                <p className="text-default-500">{t('setup.subtitle')}</p>
               </div>
             </div>
             <StatusChip installing={installing} setupError={setupError} />
@@ -199,11 +206,11 @@ export function SetupPage() {
           <CardBody className="flex flex-col gap-6 p-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="font-medium">Install progress</span>
+                <span className="font-medium">{t('setup.progress')}</span>
                 <span className="text-small text-default-500">{progress}%</span>
               </div>
               <Progress
-                aria-label="Setup progress"
+                aria-label={t('setup.progressAria')}
                 value={progress}
                 color={setupError ? 'danger' : 'primary'}
                 radius="sm"
@@ -212,7 +219,7 @@ export function SetupPage() {
               />
               <div className="flex min-h-6 items-center gap-2 text-small text-default-500">
                 {installing && <Spinner size="sm" color="primary" />}
-                <span>{activeStep ? STEP_LABELS[activeStep.step] : 'Waiting for install command'}</span>
+                <span>{activeStep ? t(STEP_LABEL_KEYS[activeStep.step]) : t('setup.waiting')}</span>
               </div>
             </div>
 
@@ -220,12 +227,12 @@ export function SetupPage() {
               <Alert
                 color="danger"
                 variant="flat"
-                title="Setup failed"
+                title={t('setup.errorTitle')}
                 description={setupErrorSummary}
               />
             )}
 
-            <div className="grid max-h-[520px] gap-2 overflow-y-auto pr-1">
+            <div className="grid gap-2 pr-1">
               {steps.map((step) => (
                 <StepRow key={step.step} step={step} />
               ))}
@@ -240,7 +247,7 @@ export function SetupPage() {
               isLoading={installing}
               spinner={<Spinner size="sm" color="white" />}
             >
-              {installing ? 'Installing components' : 'Install all required components'}
+              {installing ? t('setup.installing') : t('setup.installAll')}
             </Button>
           </CardBody>
         </Card>
@@ -248,29 +255,29 @@ export function SetupPage() {
         <div className="grid grid-rows-[auto_1fr] gap-6">
           <Card radius="sm" className="overflow-hidden">
             <CardHeader className="flex flex-col items-start p-5">
-              <h2 className="font-semibold">Runtime</h2>
-              <p className="text-small text-default-500">Local filesystem targets</p>
+              <h2 className="font-semibold">{t('setup.runtime')}</h2>
+              <p className="text-small text-default-500">{t('setup.runtimeSubtitle')}</p>
             </CardHeader>
             <Divider />
             <CardBody className="flex flex-col gap-3 p-5">
-              <RuntimeItem label="Storage" value="~/.wisploc/" />
-              <RuntimeItem label="Binaries" value="~/.wisploc/bin" />
-              <RuntimeItem label="Models" value="~/.wisploc/models" />
-              <RuntimeItem label="Database" value="~/.wisploc/data/wisploc.db" />
+              <RuntimeItem label={t('setup.storage')} value="~/.wisploc/" />
+              <RuntimeItem label={t('setup.binaries')} value="~/.wisploc/bin" />
+              <RuntimeItem label={t('setup.models')} value="~/.wisploc/models" />
+              <RuntimeItem label={t('setup.database')} value="~/.wisploc/data/wisploc.db" />
             </CardBody>
           </Card>
 
           <Card radius="sm" className="min-h-0 overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between p-5">
               <div>
-                <h2 className="font-semibold">Setup log</h2>
-                <p className="text-small text-default-500">Persists after page reload</p>
+                <h2 className="font-semibold">{t('setup.log')}</h2>
+                <p className="text-small text-default-500">{t('setup.logSubtitle')}</p>
               </div>
               {installing && <Spinner size="sm" color="primary" />}
             </CardHeader>
             <Divider />
             <CardBody className="p-0">
-              <ScrollShadow className="h-[420px] overflow-y-auto p-4">
+              <div className="p-4">
                 {visibleLogs.length > 0 ? (
                   visibleLogs.map((line, index) => (
                     <p key={`${line}-${index}`} className="break-words font-mono text-small text-default-600">
@@ -278,9 +285,9 @@ export function SetupPage() {
                     </p>
                   ))
                 ) : (
-                  <p className="text-small text-default-500">No setup events yet.</p>
+                  <p className="text-small text-default-500">{t('setup.noEvents')}</p>
                 )}
-              </ScrollShadow>
+              </div>
             </CardBody>
           </Card>
         </div>
@@ -317,29 +324,33 @@ function summarizeText(value: string, maxLength: number): string {
 }
 
 function StepRow({ step }: { step: StepState }) {
+  const { t } = useI18n()
+
   return (
     <Alert
       className="overflow-hidden"
       color={stepColor(step.status)}
       variant="flat"
-      title={STEP_LABELS[step.step]}
-      description={getStepDescription(step)}
+      title={t(STEP_LABEL_KEYS[step.step])}
+      description={getStepDescription(step, t)}
       icon={step.status === 'running' ? <Spinner size="sm" color="primary" /> : undefined}
       endContent={<StepChip status={step.status} />}
     />
   )
 }
 
-function getStepDescription(step: StepState): string {
+function getStepDescription(step: StepState, t: ReturnType<typeof useI18n>['t']): string {
   if (step.status === 'failed' && step.error) return summarizeText(step.error, 160)
-  if (step.status === 'running') return `Installing ${STEP_LABELS[step.step]}`
-  return STEP_DESCRIPTIONS[step.step]
+  if (step.status === 'running') return t('setup.installingStep', { step: t(STEP_LABEL_KEYS[step.step]) })
+  return t(STEP_DESCRIPTION_KEYS[step.step])
 }
 
 function StepChip({ status }: { status: StepState['status'] }) {
+  const { t } = useI18n()
+
   return (
     <Chip size="sm" color={stepColor(status)} variant="flat" radius="sm">
-      {status}
+      {stepStatusLabel(status, t)}
     </Chip>
   )
 }
@@ -352,19 +363,21 @@ function stepColor(status: StepState['status']) {
 }
 
 function StatusChip({ installing, setupError }: { installing: boolean; setupError: string | null }) {
+  const { t } = useI18n()
+
   if (installing) {
     return (
       <Chip color="primary" variant="flat" radius="sm" startContent={<Spinner size="sm" color="primary" />}>
-        Running
+        {t('common.running')}
       </Chip>
     )
   }
 
   if (setupError) {
-    return <Chip color="danger" variant="flat" radius="sm">Failed</Chip>
+    return <Chip color="danger" variant="flat" radius="sm">{t('common.failed')}</Chip>
   }
 
-  return <Chip color="default" variant="flat" radius="sm">Not installed</Chip>
+  return <Chip color="default" variant="flat" radius="sm">{t('setup.notInstalled')}</Chip>
 }
 
 function RuntimeItem({ label, value }: { label: string; value: string }) {
@@ -376,4 +389,11 @@ function RuntimeItem({ label, value }: { label: string; value: string }) {
       </Snippet>
     </div>
   )
+}
+
+function stepStatusLabel(status: StepState['status'], t: ReturnType<typeof useI18n>['t']): string {
+  if (status === 'completed') return t('status.completed')
+  if (status === 'failed') return t('status.failed')
+  if (status === 'running') return t('status.running')
+  return t('status.pending')
 }
