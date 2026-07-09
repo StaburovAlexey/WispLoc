@@ -1,11 +1,18 @@
 {
-  "name": "@wisploc/launcher",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@gilbertfrost/wisploc",
+  "version": "0.1.3",
+  "private": false,
   "type": "module",
-  "main": "./src/main.ts",
+  "main": "./dist/main.js",
   "bin": {
     "wisploc": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
@@ -15,6 +22,9 @@
   "dependencies": {
     "@wisploc/api": "workspace:*",
     "@wisploc/core": "workspace:*",
+    "@wisploc/integrations": "workspace:*",
+    "@wisploc/shared": "workspace:*",
+    "@wisploc/web": "workspace:*",
     "@wisploc/worker": "workspace:*",
     "open": "^10.1.0"
   },
