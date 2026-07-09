@@ -7,9 +7,9 @@ import path from 'node:path'
 import type { SetupEvent, SetupStep } from '@wisploc/shared'
 import { PATHS, DEFAULTS } from '@wisploc/shared'
 import { ensureDirectories, fileExists } from '../filesystem'
-import { getDatabaseUrl, loadConfig, saveConfig } from '../config'
+import { loadConfig, saveConfig } from '../config'
 import { writeManagedOllamaPid } from '../ollama/runtime'
-import { ensureDatabaseEnv, getPrisma } from '../database'
+import { ensureDatabaseSchema, getPrisma } from '../database'
 import { installWhisperModel } from '../whisper/models'
 import { createLogger } from '../logger'
 
@@ -871,24 +871,6 @@ export async function checkSetupBinary(
 
 async function ensureDatabase(): Promise<void> {
   ensureDirectories()
-  ensureDatabaseEnv()
-
-  const schemaPath = findPrismaSchema()
-  if (schemaPath) {
-    await execa('npx', ['prisma', 'db', 'push', '--schema', schemaPath, '--skip-generate'], {
-      env: { DATABASE_URL: getDatabaseUrl() },
-      timeout: 120_000,
-    })
-  }
-
+  await ensureDatabaseSchema()
   await getPrisma().$queryRaw`SELECT 1`
-}
-
-function findPrismaSchema(): string | null {
-  const candidates = [
-    path.resolve(process.cwd(), 'prisma/schema.prisma'),
-    path.resolve(process.cwd(), '../../prisma/schema.prisma'),
-    path.resolve(process.cwd(), '../../../prisma/schema.prisma'),
-  ]
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null
 }

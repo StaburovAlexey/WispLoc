@@ -1,7 +1,7 @@
 /**
  * WispLoc Worker — polls SQLite for PENDING jobs and processes them sequentially.
  */
-import { createLogger, getPrisma } from '@wisploc/core'
+import { createLogger, ensureDatabaseSchema, getPrisma } from '@wisploc/core'
 import { runPipeline } from './processor/pipeline'
 
 const prisma = getPrisma()
@@ -23,6 +23,7 @@ type ClaimedJob = {
 export async function startWorker() {
   if (workerStarted) return
   workerStarted = true
+  await ensureDatabaseSchema()
   console.log('[worker] WispLoc worker started — polling for jobs')
   workerLog.info('worker started', { pollIntervalMs: POLL_INTERVAL_MS })
   await recoverStaleProcessingJobs()

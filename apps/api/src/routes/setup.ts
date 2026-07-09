@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { cancelSetup, runFullSetup, loadConfig, getPrisma } from '@wisploc/core'
+import { cancelSetup, runFullSetup, loadConfig, getPrisma, ensureDatabaseSchema } from '@wisploc/core'
 import type { SetupEvent, SetupStatusDto, SetupStep, SetupStepStatusDto } from '@wisploc/shared'
 
 const prisma = getPrisma()
@@ -310,6 +310,7 @@ async function updateSetupState(event: SetupEvent) {
 }
 
 async function getOrCreateSetupState() {
+  await ensureDatabaseSchema()
   const state = await prisma.setupState.findFirst()
   if (state) return state
   return prisma.setupState.create({ data: {} })
