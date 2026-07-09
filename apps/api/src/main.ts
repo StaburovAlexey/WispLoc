@@ -4,7 +4,7 @@ import { loadConfig } from '@wisploc/core'
 async function main() {
   const config = loadConfig()
 
-  const app = await createServer()
+  const app = await createServer({ logger: true })
 
   try {
     await app.listen({ host: config.appHost, port: config.appPort })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -67,6 +67,7 @@ export function SetupPage() {
   const [setupError, setSetupError] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [setupProgress, setSetupProgress] = useState(0)
+  const logScrollRef = useRef<HTMLDivElement | null>(null)
 
   const applySetupStatus = useCallback((dto: SetupStatusDto) => {
     setComplete(dto.setupCompleted)
@@ -159,11 +160,18 @@ export function SetupPage() {
   }
 
   const visibleLogs = logs.slice(-80)
+  const lastVisibleLog = visibleLogs.at(-1)
   const completedCount = steps.filter((step) => step.status === 'completed').length
   const stepProgress = Math.round((completedCount / steps.length) * 100)
   const progress = complete ? 100 : installing ? Math.max(stepProgress, setupProgress) : stepProgress
   const activeStep = steps.find((step) => step.status === 'running')
   const setupErrorSummary = setupError ? summarizeText(setupError, 240) : null
+
+  useEffect(() => {
+    const logElement = logScrollRef.current
+    if (!logElement) return
+    logElement.scrollTop = logElement.scrollHeight
+  }, [visibleLogs.length, lastVisibleLog])
 
   if (complete) {
     return (
@@ -277,7 +285,7 @@ export function SetupPage() {
             </CardHeader>
             <Divider />
             <CardBody className="p-0">
-              <div className="p-4">
+              <div ref={logScrollRef} className="h-80 overflow-y-auto p-4">
                 {visibleLogs.length > 0 ? (
                   visibleLogs.map((line, index) => (
                     <p key={`${line}-${index}`} className="break-words font-mono text-small text-default-600">

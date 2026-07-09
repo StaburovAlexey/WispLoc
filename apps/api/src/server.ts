@@ -19,6 +19,9 @@ import { loadConfig } from '@wisploc/core'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 type CorsOrigin = string | boolean | RegExp | Array<string | boolean | RegExp>
+type CreateServerOptions = {
+  logger?: boolean
+}
 
 /** Resolve the web build directory relative to the monorepo root. */
 function findWebDist(): string | null {
@@ -35,10 +38,10 @@ function findWebDist(): string | null {
   return null
 }
 
-export async function createServer() {
+export async function createServer(options: CreateServerOptions = {}) {
   const config = loadConfig()
   const app = Fastify({
-    logger: { level: 'info' },
+    logger: options.logger === false ? false : { level: 'info' },
   })
 
   // CORS

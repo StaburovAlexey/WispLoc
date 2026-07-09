@@ -67,7 +67,7 @@ async function main() {
   try {
     // Dynamically import the API server
     const { createServer } = await import('@wisploc/api')
-    const app = await createServer()
+    const app = await createServer({ logger: false })
     const { startWorker } = await import('@wisploc/worker')
 
     const { loadConfig } = await import('@wisploc/core')
