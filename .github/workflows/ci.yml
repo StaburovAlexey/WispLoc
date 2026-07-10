@@ -38,11 +38,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Build packages
+        run: pnpm build
+
       - name: Test
         run: pnpm test
 
       - name: Clean home smoke
         run: pnpm test:smoke
-
-      - name: Build packages
-        run: pnpm build
