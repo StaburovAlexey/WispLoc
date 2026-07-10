@@ -1,5 +1,5 @@
-import { execa } from 'execa'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { loadConfig } from '../config'
 import { writeManagedOllamaPid } from './runtime'
@@ -18,6 +18,7 @@ const OLLAMA_REQUEST_TIMEOUT_MS = 600_000
 const MAX_CHUNK_TRANSCRIPT_CHARS = 8_000
 const MAX_FINAL_SUMMARIES_CHARS = 12_000
 const MAX_TASK_EXTRACTION_CHARS = 12_000
+const NO_SPEECH_SUMMARY = 'Содержательной речи не обнаружено.'
 const ollamaLog = createLogger('ollama', 'worker.log')
 
 type OllamaMode =
@@ -177,13 +178,15 @@ async function ensureOllamaReady(ollamaHost: string): Promise<void> {
   if (await isOllamaReachable(ollamaHost)) return
 
   const ollamaBin = path.join(PATHS.bin, process.platform === 'win32' ? 'ollama.exe' : 'ollama')
+  const child = spawn(ollamaBin, ['serve'], {
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, OLLAMA_HOST: ollamaHost },
+  })
+
   try {
-    const child = execa(ollamaBin, ['serve'], {
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env, OLLAMA_HOST: ollamaHost },
-    })
-    writeManagedOllamaPid(child.pid)
+    await waitForProcessSpawn(child, ollamaBin)
+    if (child.pid) writeManagedOllamaPid(child.pid)
     ollamaLog.info('ollama service started', { ollamaHost, ollamaBin, pid: child.pid })
     child.unref()
   } catch (err: any) {
@@ -211,6 +214,34 @@ async function isOllamaReachable(ollamaHost: string): Promise<boolean> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitForProcessSpawn(
+  child: ReturnType<typeof spawn>,
+  command: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+
+    const finish = (callback: () => void) => {
+      if (settled) return
+      settled = true
+      child.off('error', onError)
+      child.off('spawn', onSpawn)
+      callback()
+    }
+
+    const onError = (error: Error) => {
+      finish(() => reject(error))
+    }
+
+    const onSpawn = () => {
+      finish(resolve)
+    }
+
+    child.once('error', onError)
+    child.once('spawn', onSpawn)
+  })
 }
 
 async function parseValidateOrRepair<T>(
@@ -427,6 +458,10 @@ export async function summarizeChunk(
   startSec: number,
   endSec: number,
 ): Promise<ChunkSummary> {
+  if (isNonSpeechTranscript(transcript)) {
+    return buildNoSpeechChunkSummary(chunkIndex, startSec, endSec)
+  }
+
   const compactTranscript = limitText(transcript, MAX_CHUNK_TRANSCRIPT_CHARS)
   const prompt = `Summarize this transcript chunk (${formatTime(startSec)}-${formatTime(endSec)}). Return JSON only. /no_think
 
@@ -477,6 +512,10 @@ Hard rules:
 export async function summarizeFinal(
   chunkSummaries: ChunkSummary[],
 ): Promise<FinalSummary> {
+  if (chunkSummaries.length === 0 || chunkSummaries.every(isNonSubstantiveChunkSummary)) {
+    return buildNoSpeechFinalSummary()
+  }
+
   const summariesText = limitText(chunkSummaries
     .map((cs) => `[Chunk ${cs.chunkIndex} - ${formatTime(cs.startSec)}-${formatTime(cs.endSec)}]
 Summary: ${cs.summary}
@@ -534,6 +573,10 @@ export async function extractFinalTasks(
   finalSummary: FinalSummary,
   chunkSummaries: ChunkSummary[],
 ): Promise<ExtractedActionItem[]> {
+  if (isNonSubstantiveFinalSummary(finalSummary) && chunkSummaries.every(isNonSubstantiveChunkSummary)) {
+    return []
+  }
+
   const chunkActionCandidates = chunkSummaries
     .flatMap((summary) => summary.actionItems.map((item) => ({
       ...item,
@@ -572,6 +615,84 @@ ${limitText(JSON.stringify(chunkActionCandidates, null, 2), MAX_TASK_EXTRACTION_
     console.warn('[llm] Falling back after invalid task extraction:', err instanceof Error ? err.message : err)
     return normalizeActionItems(chunkActionCandidates)
   }
+}
+
+function isNonSpeechTranscript(transcript: string): boolean {
+  const withoutBracketedMarkers = transcript
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+  const normalized = withoutBracketedMarkers
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+
+  if (!normalized) return true
+
+  const words = normalized.split(/\s+/).filter(Boolean)
+  if (words.length > 3) return false
+
+  const nonSpeechWords = new Set([
+    'music',
+    'applause',
+    'silence',
+    'noise',
+    'laughter',
+    'музыка',
+    'аплодисменты',
+    'тишина',
+    'шум',
+    'смех',
+  ])
+
+  return words.every((word) => nonSpeechWords.has(word))
+}
+
+function buildNoSpeechChunkSummary(
+  chunkIndex: number,
+  startSec: number,
+  endSec: number,
+): ChunkSummary {
+  return {
+    chunkIndex,
+    startSec,
+    endSec,
+    summary: NO_SPEECH_SUMMARY,
+    keyPoints: [],
+    decisions: [],
+    risks: [],
+    openQuestions: [],
+    actionItems: [],
+  }
+}
+
+function buildNoSpeechFinalSummary(): FinalSummary {
+  return {
+    shortSummary: NO_SPEECH_SUMMARY,
+    detailedSummary: 'В записи не найдено содержательной речи для саммари.',
+    keyPoints: [],
+    decisions: [],
+    risks: [],
+    openQuestions: [],
+    actionItems: [],
+  }
+}
+
+function isNonSubstantiveChunkSummary(summary: ChunkSummary): boolean {
+  return summary.keyPoints.length === 0
+    && summary.decisions.length === 0
+    && summary.risks.length === 0
+    && summary.openQuestions.length === 0
+    && summary.actionItems.length === 0
+    && (!summary.summary.trim() || summary.summary.trim() === NO_SPEECH_SUMMARY)
+}
+
+function isNonSubstantiveFinalSummary(summary: FinalSummary): boolean {
+  return summary.keyPoints.length === 0
+    && summary.decisions.length === 0
+    && summary.risks.length === 0
+    && summary.openQuestions.length === 0
+    && summary.actionItems.length === 0
+    && (!summary.shortSummary.trim() || summary.shortSummary.trim() === NO_SPEECH_SUMMARY)
 }
 
 function normalizeChunkSummary(summary: ChunkSummary): ChunkSummary {
