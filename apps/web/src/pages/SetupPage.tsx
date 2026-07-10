@@ -198,7 +198,7 @@ export function SetupPage() {
   return (
     <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
       <AppTopBar />
-      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[minmax(0,740px)_400px] lg:px-8">
+      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:h-[calc(100vh-96px)] lg:max-h-[calc(100vh-96px)] lg:grid-cols-[minmax(0,740px)_400px] lg:px-8">
         <Card radius="sm" className="overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between p-6">
             <div className="space-y-2">
@@ -260,14 +260,14 @@ export function SetupPage() {
           </CardBody>
         </Card>
 
-        <div className="grid grid-rows-[auto_1fr] gap-6">
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
           <Card radius="sm" className="overflow-hidden">
-            <CardHeader className="flex flex-col items-start p-5">
+            <CardHeader className="flex flex-col items-start p-4 pb-3">
               <h2 className="font-semibold">{t('setup.runtime')}</h2>
               <p className="text-small text-default-500">{t('setup.runtimeSubtitle')}</p>
             </CardHeader>
             <Divider />
-            <CardBody className="flex flex-col gap-3 p-5">
+            <CardBody className="flex flex-col gap-2 p-4">
               <RuntimeItem label={t('setup.storage')} value="~/.wisploc/" />
               <RuntimeItem label={t('setup.binaries')} value="~/.wisploc/bin" />
               <RuntimeItem label={t('setup.models')} value="~/.wisploc/models" />
@@ -275,7 +275,7 @@ export function SetupPage() {
             </CardBody>
           </Card>
 
-          <Card radius="sm" className="min-h-0 overflow-hidden">
+          <Card radius="sm" className="flex min-h-0 flex-col overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between p-5">
               <div>
                 <h2 className="font-semibold">{t('setup.log')}</h2>
@@ -284,8 +284,8 @@ export function SetupPage() {
               {installing && <Spinner size="sm" color="primary" />}
             </CardHeader>
             <Divider />
-            <CardBody className="p-0">
-              <div ref={logScrollRef} className="h-80 overflow-y-auto p-4">
+            <CardBody className="min-h-0 flex-1 p-0">
+              <div ref={logScrollRef} className="h-80 overflow-y-auto p-4 lg:h-full">
                 {visibleLogs.length > 0 ? (
                   visibleLogs.map((line, index) => (
                     <p key={`${line}-${index}`} className="break-words font-mono text-small text-default-600">
@@ -390,9 +390,9 @@ function StatusChip({ installing, setupError }: { installing: boolean; setupErro
 
 function RuntimeItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-1">
-      <p className="text-small text-default-500">{label}</p>
-      <Snippet hideSymbol variant="flat" radius="sm" size="sm">
+    <div className="grid gap-1 lg:grid-cols-[96px_minmax(0,1fr)] lg:items-center">
+      <p className="text-tiny text-default-500">{label}</p>
+      <Snippet hideSymbol variant="flat" radius="sm" size="sm" className="min-w-0">
         {value}
       </Snippet>
     </div>
