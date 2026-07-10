@@ -41,6 +41,16 @@ Runtime data belongs under `~/.wisploc`, not inside the npm package or repositor
 
 Use structured validation for LLM output. Do not trust raw model text. Keep setup and processing idempotent where possible, and preserve completed work after failures.
 
+## Release Flow
+
+The npm package version is controlled by `apps/launcher/package.json`.
+
+- Push to `dev` publishes a new npm `beta` version and creates a GitHub prerelease.
+- Push to `main` publishes a new npm `latest` version and creates a GitHub release.
+- If the package version already exists on npm, the release workflow skips publishing and only ensures the correct npm dist-tag.
+
+The release workflow requires the repository secret `NPM_TOKEN`.
+
 ## Reporting Security Issues
 
 Please do not open public issues for security vulnerabilities. Use the process in `SECURITY.md`.
