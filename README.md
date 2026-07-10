@@ -195,3 +195,9 @@ For network-related failures, check access to GitHub, Hugging Face, and Ollama r
 - Large dependencies are installed from the setup page, not during `npm install`.
 - External integrations receive only user-selected task data.
 - Review extracted tasks before creating external issues.
+
+---
+
+## Contributing
+
+WispLoc accepts community contributions. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
