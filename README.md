@@ -10,8 +10,9 @@
 
 <p align="center">
   <img alt="Local First" src="https://img.shields.io/badge/Local%20First-000000?style=for-the-badge&logo=homeassistant&logoColor=white">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-supported-111111?style=for-the-badge&logo=linux&logoColor=white">
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-supported-111111?style=for-the-badge&logo=windows&logoColor=white">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-tested-111111?style=for-the-badge&logo=linux&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-in%20progress-111111?style=for-the-badge&logo=windows&logoColor=white">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-in%20progress-111111?style=for-the-badge&logo=apple&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-1F1F1F?style=for-the-badge&logo=typescript&logoColor=3178C6">
   <img alt="Ollama" src="https://img.shields.io/badge/Ollama-qwen3%3A4b-000000?style=for-the-badge">
@@ -93,9 +94,9 @@ Large binaries and models are not downloaded during `npm install`. The user cont
 
 | Platform | Status |
 | --- | --- |
-| Linux | Supported |
-| Windows | Supported |
-| macOS | Auto-install is not supported yet |
+| Linux | Works and has been tested |
+| Windows | Support is in progress |
+| macOS | Support is in progress |
 
 ---
 

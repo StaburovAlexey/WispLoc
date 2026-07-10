@@ -10,8 +10,9 @@
 
 <p align="center">
   <img alt="Local First" src="https://img.shields.io/badge/Local%20First-000000?style=for-the-badge&logo=homeassistant&logoColor=white">
-  <img alt="Linux" src="https://img.shields.io/badge/Linux-supported-111111?style=for-the-badge&logo=linux&logoColor=white">
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-supported-111111?style=for-the-badge&logo=windows&logoColor=white">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-tested-111111?style=for-the-badge&logo=linux&logoColor=white">
+  <img alt="Windows" src="https://img.shields.io/badge/Windows-in%20progress-111111?style=for-the-badge&logo=windows&logoColor=white">
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-in%20progress-111111?style=for-the-badge&logo=apple&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-1F1F1F?style=for-the-badge&logo=typescript&logoColor=3178C6">
   <img alt="Ollama" src="https://img.shields.io/badge/Ollama-qwen3%3A4b-000000?style=for-the-badge">
@@ -93,9 +94,9 @@ Setup установит и проверит:
 
 | Платформа | Статус |
 | --- | --- |
-| Linux | Поддерживается |
-| Windows | Поддерживается |
-| macOS | Автоустановка пока не поддерживается |
+| Linux | Работает и протестировано |
+| Windows | Поддержка в процессе |
+| macOS | Поддержка в процессе |
 
 ---
 
