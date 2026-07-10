@@ -41,7 +41,7 @@ The npm package installs only the lightweight application shell. Large dependenc
 Copy and run:
 
 ```bash
-npm install -g @wisploc/app
+npm install -g @gilbertfrost/wisploc
 ```
 
 Start WispLoc:

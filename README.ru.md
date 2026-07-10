@@ -41,7 +41,7 @@ npm-пакет устанавливает только легкую оболоч
 Скопируйте и выполните:
 
 ```bash
-npm install -g @wisploc/app
+npm install -g @gilbertfrost/wisploc
 ```
 
 Запустите WispLoc:
