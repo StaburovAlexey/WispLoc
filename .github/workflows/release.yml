@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev
+      - main
     paths:
       - apps/launcher/package.json
       - apps/**
@@ -108,7 +109,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "${{ steps.meta.outputs.git_tag }}" >/dev/null 2>&1; then
-            echo "GitHub release ${{ steps.meta.outputs.git_tag }} already exists."
+            if [[ "${{ steps.meta.outputs.prerelease }}" == "false" ]]; then
+              gh release edit "${{ steps.meta.outputs.git_tag }}" \
+                --title "WispLoc ${{ steps.meta.outputs.git_tag }}" \
+                --notes "Published npm latest release for @gilbertfrost/wisploc ${{ steps.meta.outputs.version }}." \
+                --prerelease=false
+            else
+              echo "GitHub prerelease ${{ steps.meta.outputs.git_tag }} already exists."
+            fi
           elif [[ "${{ steps.meta.outputs.prerelease }}" == "true" ]]; then
             gh release create "${{ steps.meta.outputs.git_tag }}" \
               --target "${GITHUB_SHA}" \
