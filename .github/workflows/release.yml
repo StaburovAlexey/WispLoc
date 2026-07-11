@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - dev
-      - main
     paths:
       - apps/launcher/package.json
       - apps/**
