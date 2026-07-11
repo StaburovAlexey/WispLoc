@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+    paths:
+      - apps/launcher/package.json
+      - apps/**
+      - packages/**
+      - scripts/pack-app.ts
+      - scripts/publish-app.ts
+      - README.md
+      - README.ru.md
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Read release metadata
+        id: meta
+        shell: bash
+        run: |
+          version="$(node -p "require('./apps/launcher/package.json').version")"
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            npm_tag="latest"
+            prerelease="false"
+          else
+            npm_tag="beta"
+            prerelease="true"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "npm_tag=${npm_tag}" >> "$GITHUB_OUTPUT"
+          echo "git_tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
+      - name: Check npm version
+        id: npm
+        shell: bash
+        run: |
+          if npm view "@gilbertfrost/wisploc@${{ steps.meta.outputs.version }}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run release checks
+        if: steps.npm.outputs.exists == 'false'
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm build
+          pnpm test
+          pnpm test:smoke
+
+      - name: Pack app
+        if: steps.npm.outputs.exists == 'false'
+        run: pnpm pack:app
+
+      - name: Publish to npm
+        if: steps.npm.outputs.exists == 'false'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm tsx scripts/publish-app.ts "${{ steps.meta.outputs.npm_tag }}"
+
+      - name: Ensure npm dist-tag
+        if: steps.npm.outputs.exists == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag add "@gilbertfrost/wisploc@${{ steps.meta.outputs.version }}" "${{ steps.meta.outputs.npm_tag }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.meta.outputs.git_tag }}" >/dev/null 2>&1; then
+            echo "GitHub release ${{ steps.meta.outputs.git_tag }} already exists."
+          elif [[ "${{ steps.meta.outputs.prerelease }}" == "true" ]]; then
+            gh release create "${{ steps.meta.outputs.git_tag }}" \
+              --target "${GITHUB_SHA}" \
+              --title "WispLoc ${{ steps.meta.outputs.git_tag }} beta" \
+              --notes "Published npm beta release for @gilbertfrost/wisploc ${{ steps.meta.outputs.version }}." \
+              --prerelease
+          else
+            gh release create "${{ steps.meta.outputs.git_tag }}" \
+              --target "${GITHUB_SHA}" \
+              --title "WispLoc ${{ steps.meta.outputs.git_tag }}" \
+              --notes "Published npm latest release for @gilbertfrost/wisploc ${{ steps.meta.outputs.version }}."
+          fi

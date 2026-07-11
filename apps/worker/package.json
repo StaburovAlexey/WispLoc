@@ -1,0 +1,40 @@
+{
+  "name": "@wisploc/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "types": "./src/main.ts",
+  "exports": {
+    ".": {
+      "types": "./src/main.ts",
+      "import": "./dist/main.js",
+      "default": "./dist/main.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "package.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@prisma/client": "^6.3.0",
+    "@wisploc/core": "workspace:*",
+    "@wisploc/shared": "workspace:*",
+    "execa": "^9.5.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prisma": "^6.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

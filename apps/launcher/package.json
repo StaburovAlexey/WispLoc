@@ -1,0 +1,35 @@
+{
+  "name": "@gilbertfrost/wisploc",
+  "version": "0.1.6",
+  "private": false,
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "wisploc": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@wisploc/api": "workspace:*",
+    "@wisploc/core": "workspace:*",
+    "@wisploc/integrations": "workspace:*",
+    "@wisploc/shared": "workspace:*",
+    "@wisploc/web": "workspace:*",
+    "@wisploc/worker": "workspace:*",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

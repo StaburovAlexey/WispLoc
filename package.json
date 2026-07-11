@@ -1,0 +1,41 @@
+{
+  "name": "wisploc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local web UI for processing long audio/video files on weak devices",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @wisploc/web build && concurrently --kill-others-on-fail --names api,worker,web --prefix-colors blue,magenta,green \"pnpm --filter @wisploc/api dev\" \"pnpm --filter @wisploc/worker dev\" \"pnpm --filter @wisploc/web dev\"",
+    "dev:all": "pnpm -r dev",
+    "lint": "eslint .",
+    "pack:app": "pnpm build && tsx scripts/pack-app.ts",
+    "publish:app:beta": "pnpm pack:app && tsx scripts/publish-app.ts beta",
+    "publish:app:latest": "pnpm pack:app && tsx scripts/publish-app.ts latest",
+    "test": "vitest run",
+    "test:e2e": "pnpm --filter @wisploc/web build && playwright test",
+    "test:smoke": "tsx scripts/smoke-clean-home.ts",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:push": "prisma db push"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
+    "@prisma/client": "^6.3.0",
+    "@types/supertest": "^7.2.0",
+    "concurrently": "^10.0.3",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "prisma": "^6.3.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.22.4",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.62.1",
+    "vitest": "^4.1.10"
+  }
+}
