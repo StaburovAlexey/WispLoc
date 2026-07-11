@@ -15,8 +15,22 @@
   <img alt="macOS" src="https://img.shields.io/badge/macOS-in%20progress-111111?style=for-the-badge&logo=apple&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-1F1F1F?style=for-the-badge&logo=typescript&logoColor=3178C6">
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white">
+  <img alt="HeroUI" src="https://img.shields.io/badge/HeroUI-000000?style=for-the-badge">
+  <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white">
+  <img alt="React Router" src="https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white">
+  <img alt="TanStack Query" src="https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white">
+  <img alt="Zustand" src="https://img.shields.io/badge/Zustand-443E38?style=for-the-badge">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white">
+  <img alt="Fastify" src="https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white">
+  <img alt="Prisma" src="https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white">
+  <img alt="pnpm" src="https://img.shields.io/badge/pnpm-F69220?style=for-the-badge&logo=pnpm&logoColor=white">
+  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-007808?style=for-the-badge&logo=ffmpeg&logoColor=white">
   <img alt="Ollama" src="https://img.shields.io/badge/Ollama-qwen3%3A4b-000000?style=for-the-badge">
   <img alt="Whisper" src="https://img.shields.io/badge/Whisper.cpp-ggml--base-000000?style=for-the-badge">
+  <img alt="GitHub Issues" src="https://img.shields.io/badge/GitHub_Issues-181717?style=for-the-badge&logo=github&logoColor=white">
+  <a href="https://github.com/StaburovAlexey/WispLoc"><img alt="GitHub stars" src="https://img.shields.io/github/stars/StaburovAlexey/WispLoc?style=for-the-badge&logo=github&label=Stars"></a>
 </p>
 
 ---
@@ -32,6 +46,23 @@ audio/video -> transcript -> chunk summaries -> final summary -> draft tasks
 Приложение работает на вашем компьютере и хранит файлы, транскрипции, summary, задачи, модели, логи и настройки локально в `~/.wisploc`.
 
 WispLoc рассчитан на слабые устройства: обработка по умолчанию идет последовательно, длинные файлы нарезаются на чанки, прогресс сохраняется после важных шагов.
+
+## Технологии
+
+| Область | Технологии | Назначение |
+| --- | --- | --- |
+| Frontend | React, TypeScript, Vite | Локальный web-интерфейс |
+| UI | HeroUI, Tailwind CSS, React Hook Form, Zod | Компоненты, стили, формы и валидация |
+| Навигация | React Router | Переходы между страницами |
+| Состояние и данные | Zustand, TanStack Query | Состояние клиента, API и кэширование запросов |
+| Backend | Node.js, Fastify | Локальный HTTP API и раздача web-приложения |
+| База данных | SQLite, Prisma | Локальное хранение и миграции |
+| Очередь | Worker на SQLite | Последовательная фоновая обработка |
+| Медиа | FFmpeg, ffprobe | Анализ медиа и нарезка аудио на чанки |
+| Транскрибация | whisper.cpp, whisper-cli | Локальное мультиязычное распознавание речи |
+| Summary | Ollama, qwen3:4b | Локальные summary и извлечение задач |
+| Интеграции | GitHub Issues API | Создание проверенных внешних задач |
+| Управление пакетами | pnpm workspaces | Управление зависимостями monorepo |
 
 ---
 
@@ -111,6 +142,12 @@ Setup установит и проверит:
 7. Проверьте задачи перед отправкой во внешний трекер.
 
 WispLoc по умолчанию не отправляет полные транскрипции во внешние трекеры.
+
+## Интеграция с GitHub
+
+WispLoc умеет создавать GitHub Issues из проверенных и одобренных извлеченных задач. Подключите Personal Access Token GitHub, выберите репозиторий, проверьте задачу и явно подтвердите создание issue. Полные транскрипции в GitHub не отправляются.
+
+Для интеграции нужен токен с доступом к метаданным репозитория и правом создавать или изменять Issues. Рекомендуется использовать fine-grained token, ограниченный нужным репозиторием.
 
 ---
 

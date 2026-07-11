@@ -15,8 +15,22 @@
   <img alt="macOS" src="https://img.shields.io/badge/macOS-in%20progress-111111?style=for-the-badge&logo=apple&logoColor=white">
   <img alt="React" src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-1F1F1F?style=for-the-badge&logo=typescript&logoColor=3178C6">
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white">
+  <img alt="HeroUI" src="https://img.shields.io/badge/HeroUI-000000?style=for-the-badge">
+  <img alt="Tailwind CSS" src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white">
+  <img alt="React Router" src="https://img.shields.io/badge/React_Router-CA4245?style=for-the-badge&logo=reactrouter&logoColor=white">
+  <img alt="TanStack Query" src="https://img.shields.io/badge/TanStack_Query-FF4154?style=for-the-badge&logo=reactquery&logoColor=white">
+  <img alt="Zustand" src="https://img.shields.io/badge/Zustand-443E38?style=for-the-badge">
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white">
+  <img alt="Fastify" src="https://img.shields.io/badge/Fastify-000000?style=for-the-badge&logo=fastify&logoColor=white">
+  <img alt="SQLite" src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white">
+  <img alt="Prisma" src="https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white">
+  <img alt="pnpm" src="https://img.shields.io/badge/pnpm-F69220?style=for-the-badge&logo=pnpm&logoColor=white">
+  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-007808?style=for-the-badge&logo=ffmpeg&logoColor=white">
   <img alt="Ollama" src="https://img.shields.io/badge/Ollama-qwen3%3A4b-000000?style=for-the-badge">
   <img alt="Whisper" src="https://img.shields.io/badge/Whisper.cpp-ggml--base-000000?style=for-the-badge">
+  <img alt="GitHub Issues" src="https://img.shields.io/badge/GitHub_Issues-181717?style=for-the-badge&logo=github&logoColor=white">
+  <a href="https://github.com/StaburovAlexey/WispLoc"><img alt="GitHub stars" src="https://img.shields.io/github/stars/StaburovAlexey/WispLoc?style=for-the-badge&logo=github&label=Stars"></a>
 </p>
 
 ---
@@ -111,6 +125,12 @@ Large binaries and models are not downloaded during `npm install`. The user cont
 7. Review tasks before sending anything to an external tracker.
 
 WispLoc does not send full transcripts to issue trackers by default.
+
+## GitHub Integration
+
+WispLoc can create GitHub Issues from reviewed and approved extracted tasks. Connect a GitHub Personal Access Token, select a repository, review the task, and create the issue explicitly. Full transcripts are not sent to GitHub.
+
+The GitHub integration requires a token with permission to read repository metadata and create or update Issues. A fine-grained token limited to the target repository is recommended.
 
 ---
 
