@@ -43,7 +43,8 @@ export function createGitHubProvider(config: GitHubConfig): TaskIntegrationProvi
       const userRepos = await api('/user/repos?per_page=100&sort=updated')
       repos.push(...(userRepos || []))
       return repos.map((r: any) => ({
-        id: String(r.id),
+        // Issue endpoints address repositories by owner/name, not numeric id.
+        id: String(r.full_name),
         key: r.full_name,
         name: r.full_name,
         type: 'repository' as const,

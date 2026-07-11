@@ -29,7 +29,10 @@ export async function createIntegration(input: CreateIntegrationInput): Promise<
 }
 
 export async function listIntegrations(): Promise<IntegrationAccountDto[]> {
-  const records = await prisma.integrationAccount.findMany({ orderBy: { createdAt: 'desc' } })
+  const records = await prisma.integrationAccount.findMany({
+    where: { provider: 'github' },
+    orderBy: { createdAt: 'desc' },
+  })
   return records.map(toDto)
 }
 

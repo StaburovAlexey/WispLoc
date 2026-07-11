@@ -199,7 +199,7 @@ export function SetupPage() {
     <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
       <AppTopBar />
       <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 lg:h-[calc(100vh-96px)] lg:max-h-[calc(100vh-96px)] lg:grid-cols-[minmax(0,740px)_400px] lg:px-8">
-        <Card radius="sm" className="overflow-hidden">
+        <Card radius="sm" className="flex min-h-0 flex-col overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between p-6">
             <div className="space-y-2">
               <Chip variant="flat" color="primary" radius="sm">{t('setup.eyebrow')}</Chip>
@@ -211,7 +211,7 @@ export function SetupPage() {
             <StatusChip installing={installing} setupError={setupError} />
           </CardHeader>
           <Divider />
-          <CardBody className="flex flex-col gap-6 p-6">
+          <CardBody className="min-h-0 flex-1 gap-6 overflow-y-auto p-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-medium">{t('setup.progress')}</span>
@@ -246,7 +246,11 @@ export function SetupPage() {
               ))}
             </div>
 
+          </CardBody>
+          <Divider />
+          <div className="p-6">
             <Button
+              className="w-full"
               color="primary"
               size="lg"
               radius="sm"
@@ -257,7 +261,7 @@ export function SetupPage() {
             >
               {installing ? t('setup.installing') : t('setup.installAll')}
             </Button>
-          </CardBody>
+          </div>
         </Card>
 
         <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">

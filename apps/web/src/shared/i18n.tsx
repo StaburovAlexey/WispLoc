@@ -223,7 +223,7 @@ const translations = {
     'integrations.personalAccessToken': 'Personal Access Token',
     'integrations.baseUrl': 'Base URL',
     'integrations.noConfigured': 'No integrations configured',
-    'integrations.noConfiguredDescription': 'Add Yandex Tracker, GitHub, or GitLab to create reviewed tasks externally.',
+    'integrations.noConfiguredDescription': 'Add GitHub to create reviewed tasks externally.',
     'integrations.refreshTargets': 'Refresh targets',
 
     'settings.title': 'Settings',
@@ -486,7 +486,7 @@ const translations = {
     'integrations.personalAccessToken': 'Personal Access Token',
     'integrations.baseUrl': 'Base URL',
     'integrations.noConfigured': 'Интеграции не настроены',
-    'integrations.noConfiguredDescription': 'Добавьте Yandex Tracker, GitHub или GitLab, чтобы создавать проверенные задачи во внешних сервисах.',
+    'integrations.noConfiguredDescription': 'Добавьте GitHub, чтобы создавать проверенные задачи во внешнем сервисе.',
     'integrations.refreshTargets': 'Обновить цели',
 
     'settings.title': 'Настройки',
