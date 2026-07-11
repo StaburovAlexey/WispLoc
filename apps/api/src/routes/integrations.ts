@@ -11,9 +11,7 @@ import {
   createExternalTaskRecord,
 } from '@wisploc/core'
 import {
-  createYandexTrackerProvider,
   createGitHubProvider,
-  createGitLabProvider,
 } from '@wisploc/integrations'
 import type { TaskIntegrationProvider } from '@wisploc/shared'
 
@@ -23,8 +21,11 @@ export async function integrationRoutes(app: FastifyInstance) {
     return listIntegrations()
   })
 
-  app.post('/api/integrations', async (req) => {
+  app.post('/api/integrations', async (req, reply) => {
     const body = req.body as any
+    if (body.provider !== 'github') {
+      return reply.status(400).send({ error: 'Only GitHub integrations are supported' })
+    }
     return createIntegration({
       provider: body.provider,
       displayName: body.displayName,
@@ -47,9 +48,12 @@ export async function integrationRoutes(app: FastifyInstance) {
     }
   })
 
-  app.patch('/api/integrations/:id', async (req) => {
+  app.patch('/api/integrations/:id', async (req, reply) => {
     const { id } = req.params as { id: string }
     const body = req.body as any
+    if (body.provider !== undefined && body.provider !== 'github') {
+      return reply.status(400).send({ error: 'Only GitHub integrations are supported' })
+    }
     return updateIntegration(id, {
       displayName: body.displayName,
       baseUrl: body.baseUrl,
@@ -116,11 +120,19 @@ export async function integrationRoutes(app: FastifyInstance) {
     const integration = await getIntegration(body.integrationId)
     if (!integration) return reply.status(404).send({ error: 'Integration not found' })
 
+    const target = (await getTargets(body.integrationId)).find((item) => item.id === body.targetId)
+    if (!target) return reply.status(404).send({ error: 'Integration target not found. Refresh targets and try again.' })
+
     const provider = buildProvider(integration)
     if (!provider) return reply.status(400).send({ error: 'Unknown provider' })
 
     try {
-      const result = await provider.createTask(body.targetId, {
+      // Older cached GitHub targets stored the numeric repository id in
+      // externalId. The key is the stable owner/repository API path.
+      const providerTargetId = integration.provider === 'github'
+        ? target.key || target.externalId
+        : target.externalId
+      const result = await provider.createTask(providerTargetId, {
         title: task.title,
         description: task.description,
         priority: (task.priority as any) ?? undefined,
@@ -165,21 +177,8 @@ export async function integrationRoutes(app: FastifyInstance) {
 // ── Provider factory ────────────────────────────────────
 function buildProvider(integration: any): TaskIntegrationProvider | null {
   switch (integration.provider) {
-    case 'yandex-tracker':
-      return createYandexTrackerProvider({
-        token: integration.token,
-        organizationHeader: integration.organizationId?.startsWith('cloud')
-          ? 'X-Cloud-Org-ID'
-          : 'X-Org-ID',
-        organizationId: integration.organizationId || '',
-      })
     case 'github':
       return createGitHubProvider({ token: integration.token })
-    case 'gitlab':
-      return createGitLabProvider({
-        baseUrl: integration.baseUrl || 'https://gitlab.com',
-        token: integration.token,
-      })
     default:
       return null
   }

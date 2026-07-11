@@ -15,9 +15,7 @@ interface IntegrationData {
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
-  'yandex-tracker': 'Yandex Tracker',
   github: 'GitHub',
-  gitlab: 'GitLab',
 }
 
 interface IntegrationForm {
@@ -214,19 +212,9 @@ export function IntegrationsPage() {
 
 function getProviderFields(t: ReturnType<typeof useI18n>['t']): Record<string, Array<{ key: keyof IntegrationForm; label: string; placeholder: string; type?: string }>> {
   return {
-    'yandex-tracker': [
-      { key: 'displayName', label: t('integrations.name'), placeholder: 'My Yandex Tracker' },
-      { key: 'token', label: t('integrations.oauthToken'), placeholder: 'y0_...', type: 'password' },
-      { key: 'organizationId', label: t('integrations.organizationId'), placeholder: 'abc123' },
-    ],
     github: [
       { key: 'displayName', label: t('integrations.name'), placeholder: 'My GitHub' },
       { key: 'token', label: t('integrations.personalAccessToken'), placeholder: 'ghp_...', type: 'password' },
-    ],
-    gitlab: [
-      { key: 'displayName', label: t('integrations.name'), placeholder: 'My GitLab' },
-      { key: 'baseUrl', label: t('integrations.baseUrl'), placeholder: 'https://gitlab.com' },
-      { key: 'token', label: t('integrations.personalAccessToken'), placeholder: 'glpat-...', type: 'password' },
     ],
   }
 }

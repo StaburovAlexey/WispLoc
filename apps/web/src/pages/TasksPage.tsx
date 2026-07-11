@@ -166,9 +166,13 @@ export function TasksPage() {
           <CardBody className="gap-4 p-6">
             <div className="grid grid-cols-2 gap-4">
                 <Select
-                  {...FIELD_PROPS}
-                  label={t('tasks.integration')}
-                selectedKeys={selectedIntId ? [selectedIntId] : []}
+                {...FIELD_PROPS}
+                label={t('tasks.integration')}
+                selectedKeys={new Set(selectedIntId ? [selectedIntId] : [])}
+                renderValue={() => {
+                  const selected = integrations.find((integration) => integration.id === selectedIntId)
+                  return selected ? `${selected.displayName} (${selected.provider})` : ''
+                }}
                 onSelectionChange={async (keys) => {
                   const value = String(Array.from(keys)[0] ?? '')
                   setSelectedIntId(value)
@@ -184,7 +188,11 @@ export function TasksPage() {
                 <Select
                   {...FIELD_PROPS}
                   label={t('tasks.target')}
-                selectedKeys={selectedTargetId ? [selectedTargetId] : []}
+                selectedKeys={new Set(selectedTargetId ? [selectedTargetId] : [])}
+                renderValue={() => {
+                  const selected = targets.find((target) => target.id === selectedTargetId)
+                  return selected ? `${selected.name}${selected.key ? ` (${selected.key})` : ''}` : ''
+                }}
                 onSelectionChange={(keys) => setSelectedTargetId(String(Array.from(keys)[0] ?? ''))}
               >
                 {targets.map((target) => (

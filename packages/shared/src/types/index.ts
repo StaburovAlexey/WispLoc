@@ -147,32 +147,12 @@ export interface TaskIntegrationProvider {
   ): Promise<CreatedExternalTaskResult>
 }
 
-// ── Yandex Tracker ─────────────────────────────────────
-export interface YandexTrackerSettings {
-  provider: 'yandex-tracker'
-  authType: 'oauth' | 'iam'
-  token: string
-  organizationHeader: 'X-Org-ID' | 'X-Cloud-Org-ID'
-  organizationId: string
-  defaultQueue?: string
-  defaultIssueType?: string
-  defaultPriority?: string
-}
-
 // ── GitHub ─────────────────────────────────────────────
 export interface GitHubSettings {
   provider: 'github'
   token: string
   defaultOwner?: string
   defaultRepo?: string
-}
-
-// ── GitLab ─────────────────────────────────────────────
-export interface GitLabSettings {
-  provider: 'gitlab'
-  baseUrl: string
-  token: string
-  defaultProjectId?: string
 }
 
 // ── DTOs ───────────────────────────────────────────────
