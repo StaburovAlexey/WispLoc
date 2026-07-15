@@ -40,6 +40,177 @@ export type MediaStatus =
 
 export type ChunkStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'
 
+export type PipelineVersion = 'legacy-v1' | 'evidence-v2'
+export type ProcessingStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
+export type FactType = 'statement' | 'decision' | 'problem' | 'requirement' | 'proposal' | 'question' | 'task_candidate'
+export type FactValidationStatus = 'valid' | 'invalid_schema' | 'invalid_quote' | 'invalid_timecode' | 'needs_review'
+export type TaskReviewStatus = 'DRAFT' | 'APPROVED' | 'REJECTED'
+
+export interface EvidenceTranscriptSegment {
+  id: string
+  mediaFileId: string
+  startSec: number
+  endSec: number
+  originalText: string
+  normalizedText?: string
+  speaker?: string
+  sequence: number
+}
+
+export interface TranscriptChunk {
+  index: number
+  mediaFileId: string
+  startSec: number
+  endSec: number
+  segmentIds: string[]
+  originalText: string
+  normalizedText: string
+}
+
+export interface AtomicFact {
+  id: string
+  mediaFileId: string
+  chunkIndex: number
+  type: FactType
+  text: string
+  evidenceQuote: string
+  startSec: number
+  endSec: number
+  speaker?: string
+  explicit: boolean
+}
+
+export interface ValidatedFact extends AtomicFact {
+  validationStatus: FactValidationStatus
+  validationErrors: string[]
+}
+
+export interface FactEvidence {
+  quote: string
+  startSec: number
+  endSec: number
+  chunkIndex: number
+}
+
+export interface MergedFact {
+  id: string
+  mediaFileId: string
+  type: FactType
+  text: string
+  evidence: FactEvidence[]
+  sourceFactIds: string[]
+}
+
+export interface TaskCandidate {
+  id: string
+  mediaFileId: string
+  title: string
+  description?: string
+  assignee?: string
+  dueDate?: string
+  priority?: 'low' | 'medium' | 'high'
+  sourceFactIds: string[]
+  evidence: FactEvidence[]
+  explicitAction: boolean
+  explicitAssignee: boolean
+  explicitDueDate: boolean
+}
+
+export interface DraftTask extends TaskCandidate {
+  confidence: number
+  status: TaskReviewStatus
+  mergedCandidateIds: string[]
+}
+
+export interface SummaryItem {
+  text: string
+  sourceFactIds: string[]
+}
+
+export interface EvidenceSummaryBatch {
+  keyPoints: SummaryItem[]
+  decisions: SummaryItem[]
+  problems: SummaryItem[]
+  openQuestions: SummaryItem[]
+  proposals: SummaryItem[]
+}
+
+export interface EvidenceFinalSummary {
+  title: string
+  summary: string
+  keyPoints: SummaryItem[]
+  decisions: SummaryItem[]
+  problems: SummaryItem[]
+  openQuestions: SummaryItem[]
+  proposals: SummaryItem[]
+}
+
+export type DictionaryEntryStatus = 'ACTIVE' | 'DISABLED'
+export interface DictionaryEntry {
+  id: string
+  canonical: string
+  aliases: string[]
+  status: DictionaryEntryStatus
+  confirmedByUser: boolean
+  usageCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NormalizationReplacement {
+  original: string
+  canonical: string
+  startOffset: number
+  endOffset: number
+  dictionaryEntryId: string
+}
+
+export interface NormalizationResult {
+  originalText: string
+  normalizedText: string
+  replacements: NormalizationReplacement[]
+}
+
+export type TermSuggestionStatus = 'PROPOSED' | 'ACCEPTED' | 'REJECTED'
+export interface TermSuggestionExample {
+  quote: string
+  startSec: number
+  endSec: number
+}
+
+export interface TermSuggestion {
+  id: string
+  mediaFileId: string
+  observedForm: string
+  proposedCanonical: string
+  aliases: string[]
+  occurrenceCount: number
+  examples: TermSuggestionExample[]
+  status: TermSuggestionStatus
+  createdAt: string
+}
+
+export interface ProcessMediaRequest {
+  stages: ProcessingStage[]
+  useDictionary: boolean
+}
+
+export type ProcessingStage =
+  | 'transcription'
+  | 'normalization'
+  | 'fact-extraction'
+  | 'fact-deduplication'
+  | 'summary'
+  | 'tasks'
+  | 'term-discovery'
+
+export interface ProcessingPlan {
+  requestedStages: ProcessingStage[]
+  executionStages: ProcessingStage[]
+  autoAddedStages: ProcessingStage[]
+  artifacts: Record<'transcript' | 'facts' | 'mergedFacts' | 'summary' | 'tasks' | 'terms', boolean>
+}
+
 // ── Config ─────────────────────────────────────────────
 export interface WispLocConfig {
   appHost: string
@@ -52,10 +223,15 @@ export interface WispLocConfig {
   llmModel: string
   language: string
   summaryLanguage: string
+  deduplicationLevel: 'fast' | 'standard' | 'precise'
   customVocabulary?: string[]
   chunkMinutes: number
   cleanChunks: boolean
   deleteOriginalAfterProcessing: boolean
+  enableEvidencePipeline: boolean
+  useDictionaryByDefault: boolean
+  discoverTermsByDefault: boolean
+  showNormalizedTranscriptByDefault: boolean
   setupCompleted: boolean
 }
 
@@ -201,6 +377,10 @@ export interface ProcessingJobDto {
   startedAt: string | null
   finishedAt: string | null
   durationMs: number | null
+  pipelineVersion: PipelineVersion
+  requestedStages: ProcessingStage[]
+  useDictionary: boolean
+  discoverTerms: boolean
   createdAt: string
   updatedAt: string
 }
@@ -218,6 +398,10 @@ export interface ExtractedTaskDto {
   dueDateHint: string | null
   confidence: number | null
   status: string
+  pipelineVersion: PipelineVersion
+  sourceFactIds: string[]
+  evidence: FactEvidence[]
+  mergedCandidateIds: string[]
   createdAt: string
   updatedAt: string
 }

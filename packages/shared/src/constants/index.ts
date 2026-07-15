@@ -35,6 +35,7 @@ export const DEFAULT_CONFIG: WispLocConfig = {
   llmModel: 'qwen3:4b',
   language: 'ru',
   summaryLanguage: 'ru',
+  deduplicationLevel: 'standard',
   customVocabulary: [
     'WispLoc',
     'FFmpeg',
@@ -53,12 +54,18 @@ export const DEFAULT_CONFIG: WispLocConfig = {
   chunkMinutes: 5,
   cleanChunks: true,
   deleteOriginalAfterProcessing: false,
+  enableEvidencePipeline: true,
+  useDictionaryByDefault: false,
+  discoverTermsByDefault: false,
+  showNormalizedTranscriptByDefault: false,
   setupCompleted: false,
 }
 
 // ── Defaults ───────────────────────────────────────────
 export const DEFAULTS = {
-  chunkSeconds: 300, // 5 minutes
+  chunkSeconds: 120,
+  transcriptChunkSeconds: 120,
+  transcriptChunkOverlapSeconds: 20,
   sampleRate: 16000,
   audioChannels: 1,
   audioCodec: 'pcm_s16le',
