@@ -47,123 +47,172 @@ model MediaFile {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  chunks         MediaChunk[]
-  jobs           ProcessingJob[]
-  transcript     TranscriptSegment[]
-  summaries      Summary[]
-  extractedTasks ExtractedTask[]
-  summaryBatchCheckpoints SummaryBatchCheckpoint[]
+  chunks                   MediaChunk[]
+  jobs                     ProcessingJob[]
+  transcript               TranscriptSegment[]
+  summaries                Summary[]
+  extractedTasks           ExtractedTask[]
+  summaryBatchCheckpoints  SummaryBatchCheckpoint[]
+  evidenceTranscriptChunks EvidenceTranscriptChunk[]
+  atomicFacts              AtomicFactRecord[]
+  mergedFacts              MergedFactRecord[]
+  taskCandidates           TaskCandidateRecord[]
+  termSuggestions          TermSuggestion[]
+  normalizedSegments       NormalizedTranscriptSegment[]
+  factChunkCheckpoints     FactChunkCheckpoint[]
+  corrections              UserCorrectionRecord[]
 }
 
 model MediaChunk {
-  id             String   @id @default(uuid())
-  mediaFileId    String
-  index          Int
-  startSec       Float
-  endSec         Float
-  audioPath      String
-  status         String   @default("PENDING")
-  transcriptPath String?
-  summaryPath    String?
-  errorMessage   String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                     String   @id @default(uuid())
+  mediaFileId            String
+  index                  Int
+  startSec               Float
+  endSec                 Float
+  audioPath              String
+  status                 String   @default("PENDING")
+  transcriptPath         String?
+  summaryPath            String?
+  errorMessage           String?
+  audioFingerprint       String?
+  transcriptionInputHash String?
+  transcriptionModel     String?
+  transcriptionLanguage  String?
+  transcriptionVersion   String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  mediaFile MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile          MediaFile           @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  transcriptSegments TranscriptSegment[]
 
   @@unique([mediaFileId, index])
 }
 
 model ProcessingJob {
-  id           String   @id @default(uuid())
-  mediaFileId  String?
-  type         String
-  status       String   @default("PENDING")
-  progress     Int      @default(0)
-  currentStep  String?
-  attempts     Int      @default(0)
-  errorMessage String?
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  durationMs   Int?
-  pipelineVersion String  @default("legacy-v1")
-  useDictionary   Boolean @default(false)
-  discoverTerms   Boolean @default(false)
-  stagesJson      String?
+  id                  String    @id @default(uuid())
+  mediaFileId         String?
+  type                String
+  status              String    @default("PENDING")
+  progress            Int       @default(0)
+  currentStep         String?
+  attempts            Int       @default(0)
+  errorMessage        String?
+  qualityWarningsJson String    @default("[]")
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  durationMs          Int?
+  pipelineVersion     String    @default("legacy-v1")
+  useDictionary       Boolean   @default(false)
+  discoverTerms       Boolean   @default(false)
+  stagesJson          String?
   requestedStagesJson String?
-  inputHash       String?
-  promptVersion   String?
-  modelName       String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  inputHash           String?
+  promptVersion       String?
+  modelName           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  mediaFile MediaFile? @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile                MediaFile?                    @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  evidenceTranscriptChunks EvidenceTranscriptChunk[]
+  atomicFacts              AtomicFactRecord[]
+  mergedFacts              MergedFactRecord[]
+  taskCandidates           TaskCandidateRecord[]
+  termSuggestions          TermSuggestion[]
+  normalizedSegments       NormalizedTranscriptSegment[]
+  artifactGenerations      ArtifactGeneration[]
+  corrections              UserCorrectionRecord[]
+  summaryBatchCheckpoints  SummaryBatchCheckpoint[]
+  extractedTasks           ExtractedTask[]
+  generatedSummaries       Summary[]
 }
 
 model TranscriptSegment {
-  id          String   @id @default(uuid())
-  mediaFileId String
-  chunkId     String?
-  startSec    Float
-  endSec      Float
-  text        String
-  normalizedText String?
-  sequence    Int      @default(0)
+  id               String   @id @default(uuid())
+  mediaFileId      String
+  chunkId          String?
+  startSec         Float
+  endSec           Float
+  text             String
+  normalizedText   String?
+  sequence         Int      @default(0)
+  chunkIndex       Int?
+  segmentIndex     Int?
   replacementsJson String?
-  speaker     String?
-  createdAt   DateTime @default(now())
+  speaker          String?
+  createdAt        DateTime @default(now())
 
-  mediaFile MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile      MediaFile                     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  chunk          MediaChunk?                   @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  normalizations NormalizedTranscriptSegment[]
+
+  @@index([mediaFileId, startSec, endSec, sequence])
 }
 
 model Summary {
-  id               String   @id @default(uuid())
-  mediaFileId      String
-  kind             String
-  shortSummary     String?
-  detailedSummary  String?
-  keyPointsJson    String?
-  decisionsJson    String?
-  risksJson        String?
-  openQuestionsJson String?
-  actionItemsJson  String?
-  modelName        String
-  pipelineVersion  String   @default("legacy-v1")
-  promptVersion    String?
-  sourceItemsJson  String?
-  problemsJson     String?
-  proposalsJson    String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  mediaFileId           String
+  kind                  String
+  shortSummary          String?
+  detailedSummary       String?
+  keyPointsJson         String?
+  decisionsJson         String?
+  risksJson             String?
+  openQuestionsJson     String?
+  actionItemsJson       String?
+  modelName             String
+  pipelineVersion       String   @default("legacy-v1")
+  promptVersion         String?
+  sourceItemsJson       String?
+  problemsJson          String?
+  proposalsJson         String?
+  processingJobId       String?
+  artifactGenerationId  String?
+  inputHash             String?
+  schemaVersion         String?  @default("evidence-summary-v1")
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  mediaFile MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile     MediaFile      @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob? @relation(fields: [processingJobId], references: [id], onDelete: SetNull)
 }
 
 model ExtractedTask {
-  id               String   @id @default(uuid())
-  mediaFileId      String
-  title            String
-  description      String
-  sourceTimecode   String?
-  sourceChunkIndex Int?
-  priority         String?
-  labelsJson       String?
-  assigneeHint     String?
-  dueDateHint      String?
-  confidence       Float?
-  status           String   @default("DRAFT")
-  pipelineVersion  String   @default("legacy-v1")
-  modelName        String?
-  promptVersion    String?
-  sourceFactIdsJson String?
-  evidenceJson     String?
-  mergedCandidateIdsJson String?
-  generatedTitle   String?
-  generatedDescription String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                      String   @id @default(uuid())
+  mediaFileId             String
+  processingJobId         String?
+  title                   String
+  description             String
+  sourceTimecode          String?
+  sourceChunkIndex        Int?
+  priority                String?
+  labelsJson              String?
+  assigneeHint            String?
+  dueDateHint             String?
+  confidence              Float?
+  confidenceBreakdownJson String?
+  status                  String   @default("DRAFT")
+  pipelineVersion         String   @default("legacy-v1")
+  modelName               String?
+  promptVersion           String?
+  sourceFactIdsJson       String?
+  evidenceJson            String?
+  mergedCandidateIdsJson  String?
+  generatedTitle          String?
+  generatedDescription    String?
+  artifactGenerationId    String?
+  inputHash               String?
+  schemaVersion           String?  @default("evidence-task-v1")
+  dictionaryHash          String?
+  retrievalVersion        String?
+  retrievalManifestJson   String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
-  mediaFile     MediaFile            @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile     MediaFile             @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob?        @relation(fields: [processingJobId], references: [id], onDelete: SetNull)
   externalTasks CreatedExternalTask[]
 }
 
@@ -179,85 +228,130 @@ model DictionaryEntry {
 }
 
 model EvidenceTranscriptChunk {
-  id             String   @id @default(uuid())
-  mediaFileId    String
-  processingJobId String
-  index          Int
-  startSec       Float
-  endSec         Float
-  segmentIdsJson String
-  originalText   String
-  normalizedText String
-  inputHash      String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  mediaFileId           String
+  processingJobId       String
+  index                 Int
+  startSec              Float
+  endSec                Float
+  segmentIdsJson        String
+  originalText          String
+  normalizedText        String
+  inputHash             String
+  artifactGenerationId  String?
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
 
   @@unique([processingJobId, index])
 }
 
 model AtomicFactRecord {
-  id               String   @id
-  mediaFileId      String
-  processingJobId  String
-  chunkIndex       Int
-  type             String
-  text             String
-  evidenceQuote    String
-  startSec         Float
-  endSec           Float
-  speaker          String?
-  explicit         Boolean
-  validationStatus String
-  validationErrorsJson String
-  repairUsed       Boolean  @default(false)
-  promptVersion    String
-  modelName        String
-  createdAt        DateTime @default(now())
+  id                    String   @id
+  mediaFileId           String
+  processingJobId       String
+  artifactGenerationId  String?
+  inputHash             String?
+  chunkIndex            Int
+  type                  String
+  text                  String
+  evidenceQuote         String
+  startSec              Float
+  endSec                Float
+  speaker               String?
+  explicit              Boolean
+  validationStatus      String
+  validationErrorsJson  String
+  repairUsed            Boolean  @default(false)
+  promptVersion         String
+  modelName             String
+  schemaVersion         String   @default("atomic-fact-v1")
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
 }
 
 model MergedFactRecord {
-  id               String   @id
-  mediaFileId      String
-  processingJobId  String
-  type             String
-  text             String
-  evidenceJson     String
-  sourceFactIdsJson String
-  createdAt        DateTime @default(now())
+  id                    String   @id
+  mediaFileId           String
+  processingJobId       String
+  artifactGenerationId  String?
+  inputHash             String?
+  type                  String
+  text                  String
+  evidenceJson          String
+  sourceFactIdsJson     String
+  modelName             String?
+  promptVersion         String?
+  schemaVersion         String   @default("merged-fact-v1")
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
 }
 
 model SummaryBatchCheckpoint {
-  id            String   @id @default(uuid())
-  mediaFileId   String
-  batchIndex    Int
-  inputHash     String
-  summaryJson   String
-  modelName     String
-  promptVersion String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                    String   @id @default(uuid())
+  mediaFileId           String
+  batchIndex            Int
+  inputHash             String
+  summaryJson           String
+  modelName             String
+  promptVersion         String
+  processingJobId       String?
+  artifactGenerationId  String?
+  schemaVersion         String   @default("summary-batch-v1")
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-  mediaFile MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  mediaFile     MediaFile      @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob? @relation(fields: [processingJobId], references: [id], onDelete: SetNull)
 
   @@unique([mediaFileId, batchIndex, inputHash])
 }
 
 model TaskCandidateRecord {
-  id                String   @id
-  mediaFileId       String
-  processingJobId   String
-  title             String
-  description       String?
-  assignee          String?
-  dueDate            String?
-  priority           String?
-  sourceFactIdsJson  String
-  evidenceJson       String
-  explicitAction     Boolean
-  explicitAssignee   Boolean
-  explicitDueDate    Boolean
+  id                     String   @id
+  mediaFileId            String
+  processingJobId        String
+  artifactGenerationId   String?
+  inputHash              String?
+  title                  String
+  description            String?
+  assignee               String?
+  dueDate                String?
+  priority               String?
+  sourceFactIdsJson      String
+  evidenceJson           String
+  explicitAction         Boolean
+  explicitAssignee       Boolean
+  explicitDueDate        Boolean
   mergedCandidateIdsJson String?
-  createdAt          DateTime @default(now())
+  modelName              String?
+  promptVersion          String?
+  schemaVersion          String   @default("task-candidate-v1")
+  dictionaryHash         String?
+  retrievalVersion       String?
+  retrievalManifestJson  String?
+  createdAt              DateTime @default(now())
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
 }
 
 model TermSuggestion {
@@ -272,6 +366,9 @@ model TermSuggestion {
   status            String   @default("PROPOSED")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
 }
 
 model IntegrationAccount {
@@ -317,4 +414,102 @@ model CreatedExternalTask {
   createdAt       DateTime @default(now())
 
   extractedTask ExtractedTask @relation(fields: [extractedTaskId], references: [id], onDelete: Cascade)
+}
+
+model NormalizedTranscriptSegment {
+  id                         String   @id @default(uuid())
+  mediaFileId                String
+  processingJobId            String
+  segmentId                  String
+  normalizedText             String
+  replacementsJson           String
+  dictionaryHash             String
+  normalizationPromptVersion String
+  createdAt                  DateTime @default(now())
+
+  mediaFile     MediaFile         @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob     @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
+  segment       TranscriptSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  @@unique([processingJobId, segmentId])
+}
+
+model FactChunkCheckpoint {
+  id                    String   @id @default(uuid())
+  mediaFileId           String
+  chunkIndex            Int
+  inputHash             String
+  factsJson             String
+  modelName             String
+  promptVersion         String
+  schemaVersion         String
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  mediaFile MediaFile @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaFileId, chunkIndex, inputHash])
+}
+
+model ArtifactGeneration {
+  id                    String    @id @default(uuid())
+  mediaFileId           String
+  processingJobId       String
+  stage                 String
+  inputHash             String
+  status                String    @default("pending")
+  pipelineVersion       String
+  modelName             String?
+  modelBundleId         String?
+  promptVersion         String?
+  schemaVersion         String
+  dictionaryHash        String?
+  retrievalVersion      String?
+  retrievalManifestJson String?
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
+
+  @@index([mediaFileId, stage, status, createdAt])
+}
+
+model KnowledgeExample {
+  id                 String   @id
+  stage              String
+  language           String
+  inputText          String
+  expectedOutputJson String
+  labelsJson         String
+  quality            String
+  enabled            Boolean  @default(true)
+  source             String
+  contentHash        String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([stage, language, enabled])
+}
+
+model UserCorrectionRecord {
+  id                  String    @id @default(uuid())
+  mediaFileId         String
+  processingJobId     String
+  stage               String
+  sourceInput         String
+  generatedOutputJson String
+  correctedOutputJson String
+  evidenceJson        String
+  reviewStatus        String    @default("pending")
+  promotedExampleId   String?
+  createdAt           DateTime  @default(now())
+  reviewedAt          DateTime?
+
+  mediaFile     MediaFile     @relation(fields: [mediaFileId], references: [id], onDelete: Cascade)
+  processingJob ProcessingJob @relation(fields: [processingJobId], references: [id], onDelete: Cascade)
+
+  @@index([stage, reviewStatus])
 }
