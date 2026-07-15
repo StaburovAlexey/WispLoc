@@ -27,6 +27,38 @@ export async function ensureDatabaseSchema(): Promise<void> {
   for (const statement of DATABASE_SCHEMA_SQL) {
     await client.$executeRawUnsafe(statement)
   }
+
+  await ensureColumn(client, 'ProcessingJob', 'pipelineVersion', `TEXT NOT NULL DEFAULT 'legacy-v1'`)
+  await ensureColumn(client, 'ProcessingJob', 'useDictionary', 'BOOLEAN NOT NULL DEFAULT false')
+  await ensureColumn(client, 'ProcessingJob', 'discoverTerms', 'BOOLEAN NOT NULL DEFAULT false')
+  await ensureColumn(client, 'ProcessingJob', 'stagesJson', 'TEXT')
+  await ensureColumn(client, 'ProcessingJob', 'requestedStagesJson', 'TEXT')
+  await ensureColumn(client, 'ProcessingJob', 'inputHash', 'TEXT')
+  await ensureColumn(client, 'ProcessingJob', 'promptVersion', 'TEXT')
+  await ensureColumn(client, 'ProcessingJob', 'modelName', 'TEXT')
+  await ensureColumn(client, 'TranscriptSegment', 'normalizedText', 'TEXT')
+  await ensureColumn(client, 'TranscriptSegment', 'sequence', 'INTEGER NOT NULL DEFAULT 0')
+  await ensureColumn(client, 'TranscriptSegment', 'replacementsJson', 'TEXT')
+  await ensureColumn(client, 'Summary', 'pipelineVersion', `TEXT NOT NULL DEFAULT 'legacy-v1'`)
+  await ensureColumn(client, 'Summary', 'promptVersion', 'TEXT')
+  await ensureColumn(client, 'Summary', 'sourceItemsJson', 'TEXT')
+  await ensureColumn(client, 'Summary', 'problemsJson', 'TEXT')
+  await ensureColumn(client, 'Summary', 'proposalsJson', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'pipelineVersion', `TEXT NOT NULL DEFAULT 'legacy-v1'`)
+  await ensureColumn(client, 'ExtractedTask', 'modelName', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'promptVersion', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'sourceFactIdsJson', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'evidenceJson', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'mergedCandidateIdsJson', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'generatedTitle', 'TEXT')
+  await ensureColumn(client, 'ExtractedTask', 'generatedDescription', 'TEXT')
+}
+
+async function ensureColumn(client: PrismaClient, table: string, column: string, definition: string): Promise<void> {
+  const columns = await client.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info("${table}")`)
+  if (!columns.some((item) => item.name === column)) {
+    await client.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`)
+  }
 }
 
 const DATABASE_SCHEMA_SQL = [
@@ -139,6 +171,103 @@ const DATABASE_SCHEMA_SQL = [
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "ExtractedTask_mediaFileId_fkey" FOREIGN KEY ("mediaFileId") REFERENCES "MediaFile" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "DictionaryEntry" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "canonical" TEXT NOT NULL,
+    "aliasesJson" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "confirmedByUser" BOOLEAN NOT NULL DEFAULT true,
+    "usageCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "EvidenceTranscriptChunk" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "processingJobId" TEXT NOT NULL,
+    "index" INTEGER NOT NULL,
+    "startSec" REAL NOT NULL,
+    "endSec" REAL NOT NULL,
+    "segmentIdsJson" TEXT NOT NULL,
+    "originalText" TEXT NOT NULL,
+    "normalizedText" TEXT NOT NULL,
+    "inputHash" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "EvidenceTranscriptChunk_processingJobId_index_key" ON "EvidenceTranscriptChunk"("processingJobId", "index")`,
+  `CREATE TABLE IF NOT EXISTS "AtomicFactRecord" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "processingJobId" TEXT NOT NULL,
+    "chunkIndex" INTEGER NOT NULL,
+    "type" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
+    "evidenceQuote" TEXT NOT NULL,
+    "startSec" REAL NOT NULL,
+    "endSec" REAL NOT NULL,
+    "speaker" TEXT,
+    "explicit" BOOLEAN NOT NULL,
+    "validationStatus" TEXT NOT NULL,
+    "validationErrorsJson" TEXT NOT NULL,
+    "repairUsed" BOOLEAN NOT NULL DEFAULT false,
+    "promptVersion" TEXT NOT NULL,
+    "modelName" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "MergedFactRecord" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "processingJobId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "text" TEXT NOT NULL,
+    "evidenceJson" TEXT NOT NULL,
+    "sourceFactIdsJson" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "SummaryBatchCheckpoint" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "batchIndex" INTEGER NOT NULL,
+    "inputHash" TEXT NOT NULL,
+    "summaryJson" TEXT NOT NULL,
+    "modelName" TEXT NOT NULL,
+    "promptVersion" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "SummaryBatchCheckpoint_mediaFileId_fkey" FOREIGN KEY ("mediaFileId") REFERENCES "MediaFile" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "SummaryBatchCheckpoint_mediaFileId_batchIndex_inputHash_key" ON "SummaryBatchCheckpoint"("mediaFileId", "batchIndex", "inputHash")`,
+  `CREATE TABLE IF NOT EXISTS "TaskCandidateRecord" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "processingJobId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT,
+    "assignee" TEXT,
+    "dueDate" TEXT,
+    "priority" TEXT,
+    "sourceFactIdsJson" TEXT NOT NULL,
+    "evidenceJson" TEXT NOT NULL,
+    "explicitAction" BOOLEAN NOT NULL,
+    "explicitAssignee" BOOLEAN NOT NULL,
+    "explicitDueDate" BOOLEAN NOT NULL,
+    "mergedCandidateIdsJson" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "TermSuggestion" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mediaFileId" TEXT NOT NULL,
+    "processingJobId" TEXT NOT NULL,
+    "observedForm" TEXT NOT NULL,
+    "proposedCanonical" TEXT NOT NULL,
+    "aliasesJson" TEXT NOT NULL,
+    "occurrenceCount" INTEGER NOT NULL,
+    "examplesJson" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PROPOSED',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS "IntegrationAccount" (
     "id" TEXT NOT NULL PRIMARY KEY,
