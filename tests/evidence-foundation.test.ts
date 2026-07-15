@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { AtomicFact, DictionaryEntry, EvidenceTranscriptSegment, ValidatedFact } from '@wisploc/shared'
-import { calculateTaskConfidence, createTranscriptChunks, deduplicateFacts, normalizeTerms, validateFacts, validateTaskFieldsAgainstEvidence } from '../packages/core/src/evidence'
+import type { AtomicFact, DictionaryEntry, EvidenceFinalSummary, EvidenceSummaryBatch, EvidenceTranscriptSegment, ValidatedFact } from '@wisploc/shared'
+import { buildExplicitTaskFallback, calculateTaskConfidence, createTranscriptChunks, deduplicateFacts, evaluateEvidenceQuality, hasExplicitActionCue, isSubstantiveFact, isTaskContentGrounded, normalizeTerms, preservePartialSummarySections, validateFacts, validateTaskFieldsAgainstEvidence } from '../packages/core/src/evidence'
+import { clampWhisperSegments } from '../packages/core/src/whisper'
+import { calculateDictionaryHash } from '../packages/core/src/dictionary'
 
 const entries: DictionaryEntry[] = [
   {
@@ -31,6 +33,12 @@ describe('evidence foundation', () => {
     expect(result.normalizedText).toBe(result.originalText)
   })
 
+  it('uses a stable dictionary hash and invalidates it on a relevant change', () => {
+    const reordered = [{ ...entries[0], aliases: ['wisploc', 'висп лок'] }]
+    expect(calculateDictionaryHash(entries)).toBe(calculateDictionaryHash(reordered))
+    expect(calculateDictionaryHash(entries)).not.toBe(calculateDictionaryHash([{ ...entries[0], canonical: 'WispLoc App' }]))
+  })
+
   it('creates two-minute chunks with real segment overlap', () => {
     const segments = Array.from({ length: 8 }, (_, index): EvidenceTranscriptSegment => ({
       id: `segment-${index}`,
@@ -56,10 +64,13 @@ describe('evidence foundation', () => {
   })
 
   it('validates exact evidence and restores segment timestamps', () => {
-    const segments: EvidenceTranscriptSegment[] = [{
-      id: 'segment-1', mediaFileId: 'media-1', startSec: 42.5, endSec: 48.25,
-      originalText: 'Алексей, исправь форму авторизации.', sequence: 0,
-    }]
+    const segments: EvidenceTranscriptSegment[] = [
+      { id: 'segment-0', mediaFileId: 'media-1', startSec: 35, endSec: 40, originalText: 'Обсудили выпуск.', sequence: 0 },
+      {
+        id: 'segment-1', mediaFileId: 'media-1', startSec: 42.5, endSec: 48.25,
+        originalText: 'Алексей, исправь форму авторизации.', sequence: 1,
+      },
+    ]
     const fact: AtomicFact = {
       id: 'fact-1', mediaFileId: 'media-1', chunkIndex: 2, type: 'task_candidate',
       text: 'Алексей должен исправить форму авторизации.',
@@ -114,5 +125,84 @@ describe('evidence foundation', () => {
     expect(merged).toHaveLength(1)
     expect(merged[0].sourceFactIds).toEqual(['fact-1', 'fact-2'])
     expect(merged[0].evidence).toHaveLength(2)
+  })
+
+  it('preserves validated partial summary sections omitted by the final model response', () => {
+    const generated: EvidenceFinalSummary = {
+      title: 'Обсуждение проекта', summary: 'Участники обсудили дальнейшую работу над проектом.',
+      keyPoints: [], decisions: [], problems: [], openQuestions: [], proposals: [],
+    }
+    const fallback: EvidenceSummaryBatch = {
+      keyPoints: [{ text: 'Скрипт сохраняется в проекте', sourceFactIds: ['fact-1'] }],
+      decisions: [{ text: 'Удалить устаревшие параметры', sourceFactIds: ['fact-2'] }],
+      problems: [], openQuestions: [], proposals: [],
+    }
+
+    const result = preservePartialSummarySections(generated, fallback, new Set(['fact-1', 'fact-2']))
+
+    expect(result.keyPoints).toEqual(fallback.keyPoints)
+    expect(result.decisions).toEqual(fallback.decisions)
+  })
+
+  it('recognizes explicit action wording without promoting cancelled actions', () => {
+    const evidence = (quote: string) => [{ quote, startSec: 1, endSec: 2, chunkIndex: 0 }]
+    expect(hasExplicitActionCue({ text: 'Нужно спросить у Алексея', evidence: evidence('Нужно спросить у Алексея') })).toBe(true)
+    expect(hasExplicitActionCue({ text: 'Добавить настройку', evidence: evidence('Давай добавим настройку, но это отменяется') })).toBe(false)
+    expect(hasExplicitActionCue({ text: 'Обсуждается настройка', evidence: evidence('Может быть, когда-нибудь настроим') })).toBe(false)
+  })
+
+  it('builds a bounded task fallback only from direct action fact text', () => {
+    const base = {
+      id: 'fact-1', mediaFileId: 'media-1', type: 'task_candidate' as const,
+      evidence: [{ quote: 'Нужно спросить у Алексея.', startSec: 1, endSec: 2, chunkIndex: 0 }],
+      sourceFactIds: ['atomic-1'],
+    }
+    expect(buildExplicitTaskFallback('media-1', { ...base, text: 'Нужно спросить у Алексея' })).toMatchObject({
+      title: 'Спросить у Алексея', sourceFactIds: ['fact-1'], explicitAction: true,
+    })
+    expect(buildExplicitTaskFallback('media-1', { ...base, type: 'question', text: 'Сохраняется ли проект?' })).toBeNull()
+    expect(buildExplicitTaskFallback('media-1', { ...base, type: 'statement', text: 'Нужно спросить у Алексея' })).toBeNull()
+  })
+
+  it('rejects task text copied from examples when evidence does not support it', () => {
+    const source = {
+      id: 'fact-1', mediaFileId: 'media-1', type: 'task_candidate' as const,
+      text: 'Нужно проверить постоянные обрывы соединения',
+      evidence: [{ quote: 'Нужно проверить, почему есть постоянные обрывы соединения.', startSec: 1, endSec: 2, chunkIndex: 0 }],
+      sourceFactIds: ['atomic-1'],
+    }
+    expect(isTaskContentGrounded({ text: 'Подготовить README', title: 'Подготовить README' }, [source])).toBe(false)
+    expect(isTaskContentGrounded({ text: 'Проверить обрывы соединения', title: 'Проверить обрывы соединения' }, [source])).toBe(true)
+  })
+
+  it('filters conversational noise and reports weak evidence quality', () => {
+    const evidence = [{ quote: 'Ну да.', startSec: 1, endSec: 2, chunkIndex: 0 }]
+    expect(isSubstantiveFact({
+      id: 'fact-1', mediaFileId: 'media-1', type: 'statement', text: 'Ну да', evidence, sourceFactIds: ['a'],
+    })).toBe(false)
+    const warnings = evaluateEvidenceQuality({
+      segments: Array.from({ length: 10 }, (_, index) => ({
+        id: `s${index}`, mediaFileId: 'media-1', startSec: index, endSec: index + 1,
+        originalText: index === 0 ? 'Решили использовать SQLite.' : 'Продолжаем обсуждение.', sequence: index,
+      })),
+      totalFactCount: 10,
+      validFactCount: 5,
+      mergedFacts: [],
+      tasks: [],
+      summary: null,
+      language: 'ru',
+    })
+    expect(warnings.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('clamps Whisper timestamps to the audio chunk', () => {
+    expect(clampWhisperSegments([
+      { start: -1, end: 3, text: 'Первый' },
+      { start: 9, end: 15, text: 'Последний' },
+      { start: 12, end: 14, text: 'За пределами' },
+    ], 10)).toEqual([
+      { start: 0, end: 3, text: 'Первый' },
+      { start: 9, end: 10, text: 'Последний' },
+    ])
   })
 })

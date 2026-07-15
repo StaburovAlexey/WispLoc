@@ -494,6 +494,8 @@ function parseAndValidate<T>(
 ): T {
   const candidate = extractJsonCandidate(raw)
   if (!candidate) {
+    const salvaged = salvageTruncatedObjectArray(raw, schema, label)
+    if (salvaged) return salvaged
     throw new Error(`Failed to parse ${label} from LLM output: ${preview(raw)}`)
   }
 
@@ -501,9 +503,85 @@ function parseAndValidate<T>(
     return validateKnownJsonShapes(JSON.parse(candidate), schema, label)
   } catch (err: any) {
     if (err instanceof SyntaxError) {
+      const salvaged = salvageTruncatedObjectArray(raw, schema, label)
+      if (salvaged) return salvaged
       throw new Error(`Failed to parse ${label} from LLM output: ${preview(raw)}`)
     }
     throw err
+  }
+}
+
+function salvageTruncatedObjectArray<T>(
+  raw: string,
+  schema: { parse: (data: unknown) => T },
+  label: string,
+): T | null {
+  const value = stripThinkBlocks(raw)
+  const arrayMatch = /"(facts|tasks|suggestions|actionItems)"\s*:\s*\[/.exec(value)
+  if (!arrayMatch?.[1] || arrayMatch.index === undefined) return null
+
+  const key = arrayMatch[1]
+  const items: unknown[] = []
+  let objectStart = -1
+  let objectDepth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = arrayMatch.index + arrayMatch[0].length; index < value.length; index += 1) {
+    const char = value[index]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === '\\' && inString) {
+      escaped = true
+      continue
+    }
+    if (char === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+
+    if (char === '{') {
+      if (objectDepth === 0) objectStart = index
+      objectDepth += 1
+      continue
+    }
+    if (char !== '}' || objectDepth === 0) continue
+
+    objectDepth -= 1
+    if (objectDepth !== 0 || objectStart < 0) continue
+    try {
+      items.push(JSON.parse(value.slice(objectStart, index + 1)))
+    } catch {
+      // Ignore a malformed object and continue looking for complete siblings.
+    }
+    objectStart = -1
+  }
+
+  if (items.length === 0) return null
+  const validItems = items.filter((item) => {
+    try {
+      schema.parse({ [key]: [item] })
+      return true
+    } catch {
+      return false
+    }
+  })
+  if (validItems.length === 0) return null
+
+  try {
+    const result = schema.parse({ [key]: validItems })
+    ollamaLog.warn('salvaged complete items from truncated ollama json', {
+      label,
+      arrayKey: key,
+      completeItems: items.length,
+      validItems: validItems.length,
+    })
+    return result
+  } catch {
+    return null
   }
 }
 

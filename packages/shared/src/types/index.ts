@@ -26,7 +26,7 @@ export type SetupEvent =
   | { type: 'setup-completed' }
 
 // ── Status enums ───────────────────────────────────────
-export type JobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED' | 'CANCELLED'
+export type JobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'DONE_WITH_WARNINGS' | 'FAILED' | 'CANCELLED'
 
 export type MediaStatus =
   | 'UPLOADED'
@@ -41,7 +41,7 @@ export type MediaStatus =
 export type ChunkStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED'
 
 export type PipelineVersion = 'legacy-v1' | 'evidence-v2'
-export type ProcessingStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
+export type ProcessingStageStatus = 'pending' | 'running' | 'completed' | 'reused' | 'failed' | 'cancelled' | 'skipped'
 export type FactType = 'statement' | 'decision' | 'problem' | 'requirement' | 'proposal' | 'question' | 'task_candidate'
 export type FactValidationStatus = 'valid' | 'invalid_schema' | 'invalid_quote' | 'invalid_timecode' | 'needs_review'
 export type TaskReviewStatus = 'DRAFT' | 'APPROVED' | 'REJECTED'
@@ -224,6 +224,7 @@ export interface WispLocConfig {
   language: string
   summaryLanguage: string
   deduplicationLevel: 'fast' | 'standard' | 'precise'
+  maxSemanticDedupeComparisons: number
   customVocabulary?: string[]
   chunkMinutes: number
   cleanChunks: boolean
@@ -374,11 +375,13 @@ export interface ProcessingJobDto {
   progress: number
   currentStep: string | null
   errorMessage: string | null
+  qualityWarnings: string[]
   startedAt: string | null
   finishedAt: string | null
   durationMs: number | null
   pipelineVersion: PipelineVersion
   requestedStages: ProcessingStage[]
+  stageStates: Record<string, ProcessingStageStatus>
   useDictionary: boolean
   discoverTerms: boolean
   createdAt: string
@@ -397,6 +400,7 @@ export interface ExtractedTaskDto {
   assigneeHint: string | null
   dueDateHint: string | null
   confidence: number | null
+  confidenceBreakdown: Record<string, boolean>
   status: string
   pipelineVersion: PipelineVersion
   sourceFactIds: string[]
@@ -414,6 +418,8 @@ export interface JobProgressEvent {
   progress: number
   currentStep?: string
   error?: string
+  stageStates?: Record<string, ProcessingStageStatus>
+  qualityWarnings?: string[]
 }
 
 export interface IntegrationAccountDto {

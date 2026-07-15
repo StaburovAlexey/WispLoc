@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { evidenceSummaryBatchSchema, factRelationSchema } from '../packages/shared/src/schemas'
+import { evidenceSummaryBatchSchema, factModelResultSchema, factRelationSchema } from '../packages/shared/src/schemas'
 import { structuredOllamaChat } from '../packages/core/src/ollama'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -70,5 +70,26 @@ describe('Ollama streaming', () => {
       openQuestions: [],
       proposals: [],
     })
+  })
+
+  it('keeps complete facts when generation stops in the middle of the next object', async () => {
+    const completeFact = {
+      type: 'decision',
+      text: 'Использовать Fastify',
+      sourceSegmentIds: ['s1'],
+      explicit: true,
+    }
+    const truncated = `{"facts":[${JSON.stringify(completeFact)},{"type":"statement","text":"Оборвано`
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith('/api/tags')) return new Response('{}', { status: 200 })
+      return new Response(`${JSON.stringify({ message: { content: truncated }, done: true, done_reason: 'length' })}\n`, { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(structuredOllamaChat({
+      prompt: 'extract', systemPrompt: 'JSON only', mode: 'fact-extraction',
+      schema: factModelResultSchema, label: 'truncated facts',
+    })).resolves.toEqual({ facts: [completeFact] })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

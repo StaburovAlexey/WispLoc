@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import type { MergedFact, TaskCandidate, ValidatedFact } from '@wisploc/shared'
 import { normalizeQuote } from './validateFacts'
 import { classifyFactRelation } from './generate'
+import { createLogger } from '../logger'
+
+const dedupeLog = createLogger('fact-deduplication', 'worker.log')
 
 export function deduplicateFacts(facts: ValidatedFact[]): MergedFact[] {
   const merged: MergedFact[] = []
@@ -37,13 +40,20 @@ export function deduplicateTasks(tasks: TaskCandidate[]): Array<TaskCandidate & 
   return merged
 }
 
-export async function semanticDeduplicateFacts(facts: MergedFact[], signal?: AbortSignal, similarityThreshold = 0.55): Promise<MergedFact[]> {
+export async function semanticDeduplicateFacts(facts: MergedFact[], signal?: AbortSignal, similarityThreshold = 0.55, maxComparisons = 200): Promise<MergedFact[]> {
   const result = [...facts]
+  let comparisons = 0
+  let skippedByBudget = 0
   for (let leftIndex = 0; leftIndex < result.length; leftIndex += 1) {
     const left = result[leftIndex]
     for (let rightIndex = result.length - 1; rightIndex > leftIndex; rightIndex -= 1) {
       const right = result[rightIndex]
       if (left.type !== right.type || tokenSimilarity(left.text, right.text) < similarityThreshold) continue
+      if (comparisons >= maxComparisons) {
+        skippedByBudget += 1
+        continue
+      }
+      comparisons += 1
       const relation = await classifyFactRelation(left, right, signal)
       if (relation !== 'duplicate') continue
       left.sourceFactIds = [...new Set([...left.sourceFactIds, ...right.sourceFactIds])]
@@ -52,6 +62,7 @@ export async function semanticDeduplicateFacts(facts: MergedFact[], signal?: Abo
       result.splice(rightIndex, 1)
     }
   }
+  dedupeLog.info('semantic fact deduplication completed', { comparisons, maxComparisons, skippedByBudget })
   return result
 }
 

@@ -55,15 +55,19 @@ export function normalizeQuote(value: string): string {
 function findQuoteSegments(quote: string, segments: EvidenceTranscriptSegment[]): EvidenceTranscriptSegment[] {
   const normalizedQuote = normalizeQuote(quote)
   if (!normalizedQuote) return []
+  let bestMatch: EvidenceTranscriptSegment[] = []
   for (let start = 0; start < segments.length; start += 1) {
     let combined = ''
     for (let end = start; end < segments.length; end += 1) {
       combined = `${combined} ${segments[end].originalText}`.trim()
       const normalizedCombined = normalizeQuote(combined)
-      if (normalizedCombined.includes(normalizedQuote)) return segments.slice(start, end + 1)
+      if (normalizedCombined.includes(normalizedQuote)) {
+        const candidate = segments.slice(start, end + 1)
+        if (bestMatch.length === 0 || candidate.length < bestMatch.length) bestMatch = candidate
+        break
+      }
       if (normalizedCombined.length > normalizedQuote.length * 3 + 200) break
     }
   }
-  return []
+  return bestMatch
 }
-

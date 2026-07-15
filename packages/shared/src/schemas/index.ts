@@ -26,6 +26,7 @@ export const wispLocConfigSchema = z.object({
   language: z.string().default('ru'),
   summaryLanguage: z.string().default('ru'),
   deduplicationLevel: z.enum(['fast', 'standard', 'precise']).default('standard'),
+  maxSemanticDedupeComparisons: z.number().int().min(0).max(10_000).default(200),
   customVocabulary: z.array(z.string()).optional(),
   chunkMinutes: z.number().int().min(1).default(5),
   cleanChunks: z.boolean().default(true),
@@ -125,14 +126,9 @@ export const factExtractionResultSchema = z.object({ facts: z.array(atomicFactSc
 export const factModelItemSchema = z.object({
   type: factTypeSchema,
   text: z.string().trim().min(1).max(2_000),
-  // The model schema is deliberately more permissive than persisted facts.
-  // Oversized quotes are compacted by the evidence pipeline before validation.
-  evidenceQuote: z.string().trim().min(1).max(12_000),
-  startSec: z.number().min(0),
-  endSec: z.number().min(0),
-  speaker: z.string().trim().max(200).optional(),
+  sourceSegmentIds: z.array(z.string().trim().min(1)).min(1).max(6),
   explicit: z.boolean(),
-}).refine((value) => value.endSec >= value.startSec, { message: 'endSec must be greater than or equal to startSec' })
+})
 export const factModelResultSchema = z.object({ facts: z.array(factModelItemSchema).max(100) })
 export const taskCandidateModelSchema = z.object({
   title: z.string().trim().min(1).max(300),
@@ -191,7 +187,7 @@ export const processingStageSchema = z.enum([
 
 export const processMediaRequestSchema = z.object({
   stages: z.array(processingStageSchema).min(1).default([
-    'transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'summary', 'tasks',
+    'transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'tasks', 'summary',
   ]),
   useDictionary: z.boolean().default(false),
 })
