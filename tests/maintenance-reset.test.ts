@@ -38,6 +38,7 @@ describe('maintenance reset', () => {
 
     const legacyOllamaBin = path.join(home, '.wisploc/ollama/bin')
     const legacyOllamaLib = path.join(home, '.wisploc/ollama/lib/ollama')
+    const managedOllamaBin = path.join(home, '.wisploc/bin/ollama')
     const installScript = path.join(home, '.wisploc/ollama-install.sh')
     const ollamaModels = path.join(home, '.ollama/models/blobs')
     const ollamaCache = path.join(home, '.ollama/cache')
@@ -45,10 +46,13 @@ describe('maintenance reset', () => {
 
     await fsp.mkdir(legacyOllamaBin, { recursive: true })
     await fsp.mkdir(legacyOllamaLib, { recursive: true })
+    await fsp.mkdir(path.dirname(managedOllamaBin), { recursive: true })
     await fsp.mkdir(ollamaModels, { recursive: true })
     await fsp.mkdir(ollamaCache, { recursive: true })
     await fsp.mkdir(path.dirname(uploadPath), { recursive: true })
     await fsp.writeFile(path.join(legacyOllamaBin, 'ollama'), 'binary')
+    await fsp.writeFile(managedOllamaBin, '#!/bin/sh\nprintf "NAME    ID    SIZE    MODIFIED\\n"\n')
+    await fsp.chmod(managedOllamaBin, 0o755)
     await fsp.writeFile(path.join(legacyOllamaLib, 'llama-server'), 'binary')
     await fsp.writeFile(installScript, '#!/bin/sh')
     await fsp.writeFile(path.join(ollamaModels, 'sha256-test'), 'model')

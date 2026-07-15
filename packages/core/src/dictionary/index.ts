@@ -1,4 +1,5 @@
 import type { DictionaryEntry } from '@wisploc/shared'
+import { createHash } from 'node:crypto'
 import { getPrisma } from '../database'
 
 const prisma = getPrisma()
@@ -14,6 +15,19 @@ export async function listActiveDictionaryEntries(): Promise<DictionaryEntry[]> 
     orderBy: { canonical: 'asc' },
   })
   return records.map(toDictionaryEntry)
+}
+
+export function calculateDictionaryHash(entries: DictionaryEntry[]): string {
+  const stable = entries
+    .filter((entry) => entry.status === 'ACTIVE' && entry.confirmedByUser)
+    .map((entry) => ({
+      canonical: entry.canonical.trim(),
+      aliases: [...entry.aliases].map((alias) => alias.trim()).sort((a, b) => a.localeCompare(b)),
+      status: entry.status,
+      version: 'normalization-v1',
+    }))
+    .sort((a, b) => a.canonical.localeCompare(b.canonical))
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex')
 }
 
 export async function createDictionaryEntry(input: { canonical: string; aliases: string[] }): Promise<DictionaryEntry> {
@@ -86,4 +100,3 @@ function parseStringArray(value: string): string[] {
     return []
   }
 }
-

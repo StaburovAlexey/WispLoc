@@ -97,6 +97,10 @@ export async function clearProcessedResults(): Promise<MaintenanceResult> {
   await fs.mkdir(PATHS.chunks, { recursive: true })
 
   await prisma.createdExternalTask.deleteMany()
+  await prisma.userCorrectionRecord.deleteMany()
+  await prisma.artifactGeneration.deleteMany()
+  await prisma.normalizedTranscriptSegment.deleteMany()
+  await prisma.factChunkCheckpoint.deleteMany()
   await prisma.termSuggestion.deleteMany()
   await prisma.taskCandidateRecord.deleteMany()
   await prisma.summaryBatchCheckpoint.deleteMany()
@@ -123,7 +127,7 @@ export async function clearProcessedResults(): Promise<MaintenanceResult> {
   return { ok: true, deleted, skipped }
 }
 
-export async function resetAllLocalData(): Promise<MaintenanceResult> {
+export async function resetAllLocalData(options: { removeDependencies?: boolean } = {}): Promise<MaintenanceResult> {
   await assertNoActiveJobs()
   stopManagedOllama()
   maintenanceLog.warn('reset all local data started')
@@ -132,6 +136,11 @@ export async function resetAllLocalData(): Promise<MaintenanceResult> {
   const skipped: string[] = []
 
   await prisma.createdExternalTask.deleteMany()
+  await prisma.userCorrectionRecord.deleteMany()
+  await prisma.knowledgeExample.deleteMany()
+  await prisma.artifactGeneration.deleteMany()
+  await prisma.normalizedTranscriptSegment.deleteMany()
+  await prisma.factChunkCheckpoint.deleteMany()
   await prisma.termSuggestion.deleteMany()
   await prisma.taskCandidateRecord.deleteMany()
   await prisma.summaryBatchCheckpoint.deleteMany()
@@ -150,7 +159,11 @@ export async function resetAllLocalData(): Promise<MaintenanceResult> {
   await prisma.setupState.deleteMany()
   await prisma.appSetting.deleteMany()
 
-  await removeAllLocalOllamaModels(deleted, skipped)
+  if (options.removeDependencies !== false) {
+    await removeAllLocalOllamaModels(deleted, skipped)
+  } else {
+    skipped.push('runtime dependencies: retained')
+  }
 
   for (const target of [
     PATHS.bin,

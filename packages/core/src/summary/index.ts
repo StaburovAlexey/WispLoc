@@ -1,5 +1,6 @@
 import type { ChunkSummary, FinalSummary } from '@wisploc/shared'
 import { getPrisma } from '../database'
+import { listTasks } from '../tasks'
 
 const prisma = getPrisma()
 
@@ -53,7 +54,8 @@ export async function getLatestSummary(mediaFileId: string) {
     orderBy: { createdAt: 'desc' },
   })
   if (!record) return null
-  return summaryRecordToDto(record)
+  const currentTasks = record.pipelineVersion === 'evidence-v2' ? await listTasks(mediaFileId) : undefined
+  return summaryRecordToDto(record, currentTasks)
 }
 
 /** Get all chunk summaries for a media file. */
@@ -68,7 +70,7 @@ export async function getChunkSummaries(mediaFileId: string) {
     },
     orderBy: { createdAt: 'asc' },
   })
-  return records.map(summaryRecordToDto)
+  return records.map((record) => summaryRecordToDto(record))
 }
 
 /** Delete all summaries for a media file. */
@@ -82,7 +84,7 @@ function parseJsonSafe(s: string | null): any {
   try { return JSON.parse(s) } catch { return null }
 }
 
-function summaryRecordToDto(record: any) {
+function summaryRecordToDto(record: any, currentTasks?: unknown[]) {
   const chunkIndex = parseChunkIndex(record.kind)
   return {
     id: record.id,
@@ -94,7 +96,7 @@ function summaryRecordToDto(record: any) {
     decisions: parseJsonSafe(record.decisionsJson) ?? [],
     risks: parseJsonSafe(record.risksJson) ?? [],
     openQuestions: parseJsonSafe(record.openQuestionsJson) ?? [],
-    actionItems: parseJsonSafe(record.actionItemsJson) ?? [],
+    actionItems: currentTasks ?? parseJsonSafe(record.actionItemsJson) ?? [],
     modelName: record.modelName,
     pipelineVersion: record.pipelineVersion ?? 'legacy-v1',
     promptVersion: record.promptVersion ?? null,

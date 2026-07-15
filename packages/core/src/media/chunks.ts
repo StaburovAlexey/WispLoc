@@ -68,6 +68,28 @@ export async function updateChunkTranscriptPath(
   })
 }
 
+export async function updateChunkTranscriptionMetadata(id: string, metadata: {
+  audioFingerprint: string
+  transcriptionInputHash: string
+  transcriptionModel: string
+  transcriptionLanguage: string
+  transcriptionVersion: string
+}) {
+  return prisma.mediaChunk.update({ where: { id }, data: metadata })
+}
+
+export async function canReuseTranscription(chunkId: string, inputHash: string): Promise<boolean> {
+  const chunk = await prisma.mediaChunk.findUnique({ where: { id: chunkId } })
+  if (!chunk || chunk.status !== 'DONE' || chunk.transcriptionInputHash !== inputHash) return false
+  const segments = await prisma.transcriptSegment.findMany({
+    where: { chunkId },
+    select: { startSec: true, endSec: true, text: true },
+  })
+  return segments.length > 0 && segments.every((segment) => (
+    segment.startSec >= 0 && segment.endSec > segment.startSec && segment.text.trim().length > 0
+  ))
+}
+
 export async function getChunksDir(mediaFileId: string): Promise<string> {
   const dir = `${PATHS.chunks}/${mediaFileId}`
   const fs = await import('node:fs/promises')

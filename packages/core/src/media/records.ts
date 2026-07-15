@@ -42,7 +42,26 @@ export async function listMediaRecords(): Promise<MediaFileDto[]> {
 }
 
 export async function deleteMediaRecord(id: string): Promise<void> {
-  await prisma.mediaFile.delete({ where: { id } })
+  const taskIds = (await prisma.extractedTask.findMany({ where: { mediaFileId: id }, select: { id: true } })).map((task) => task.id)
+  await prisma.$transaction([
+    prisma.createdExternalTask.deleteMany({ where: { extractedTaskId: { in: taskIds } } }),
+    prisma.normalizedTranscriptSegment.deleteMany({ where: { mediaFileId: id } }),
+    prisma.factChunkCheckpoint.deleteMany({ where: { mediaFileId: id } }),
+    prisma.summaryBatchCheckpoint.deleteMany({ where: { mediaFileId: id } }),
+    prisma.taskCandidateRecord.deleteMany({ where: { mediaFileId: id } }),
+    prisma.mergedFactRecord.deleteMany({ where: { mediaFileId: id } }),
+    prisma.atomicFactRecord.deleteMany({ where: { mediaFileId: id } }),
+    prisma.evidenceTranscriptChunk.deleteMany({ where: { mediaFileId: id } }),
+    prisma.termSuggestion.deleteMany({ where: { mediaFileId: id } }),
+    prisma.userCorrectionRecord.deleteMany({ where: { mediaFileId: id } }),
+    prisma.artifactGeneration.deleteMany({ where: { mediaFileId: id } }),
+    prisma.extractedTask.deleteMany({ where: { mediaFileId: id } }),
+    prisma.summary.deleteMany({ where: { mediaFileId: id } }),
+    prisma.transcriptSegment.deleteMany({ where: { mediaFileId: id } }),
+    prisma.mediaChunk.deleteMany({ where: { mediaFileId: id } }),
+    prisma.processingJob.deleteMany({ where: { mediaFileId: id } }),
+    prisma.mediaFile.delete({ where: { id } }),
+  ])
 }
 
 export async function updateMediaStatus(
