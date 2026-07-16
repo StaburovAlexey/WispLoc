@@ -77,6 +77,7 @@ function mediaStatusLabel(status: string, t: ReturnType<typeof useI18n>['t']): s
   if (status === 'SUMMARIZING') return t('mediaStatus.summarizing')
   if (status === 'EXTRACTING_TASKS') return t('mediaStatus.extractingTasks')
   if (status === 'DONE') return t('status.done')
+  if (status === 'DONE_WITH_WARNINGS') return t('status.doneWithWarnings')
   if (status === 'FAILED') return t('status.failed')
   if (status === 'CANCELLED') return t('status.cancelled')
   return status
@@ -108,6 +109,7 @@ function formatDuration(sec: number | null, t: ReturnType<typeof useI18n>['t']) 
 
 function statusColor(status: string): 'default' | 'primary' | 'success' | 'danger' | 'warning' {
   if (status === 'DONE') return 'success'
+  if (status === 'DONE_WITH_WARNINGS') return 'warning'
   if (status === 'FAILED') return 'danger'
   if (status === 'CANCELLED') return 'default'
   if (status === 'UPLOADED') return 'default'

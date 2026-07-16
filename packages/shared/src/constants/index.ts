@@ -36,6 +36,7 @@ export const DEFAULT_CONFIG: WispLocConfig = {
   language: 'ru',
   summaryLanguage: 'ru',
   deduplicationLevel: 'standard',
+  maxSemanticDedupeComparisons: 200,
   customVocabulary: [
     'WispLoc',
     'FFmpeg',

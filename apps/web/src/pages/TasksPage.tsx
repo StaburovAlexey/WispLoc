@@ -17,11 +17,15 @@ interface TaskData {
   assigneeHint: string | null
   dueDateHint: string | null
   confidence: number | null
+  confidenceBreakdown: Record<string, boolean>
   status: string
   pipelineVersion: 'legacy-v1' | 'evidence-v2'
   sourceFactIds: string[]
   evidence: Array<{ quote: string; startSec: number; endSec: number; chunkIndex: number }>
   mergedCandidateIds: string[]
+  generatedTitle: string | null
+  generatedDescription: string | null
+  externalTasks: Array<{ id: string; provider: string; externalUrl: string; status: string }>
   createdAt: string
 }
 
@@ -40,7 +44,7 @@ interface TargetItem {
 }
 
 export function TasksPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const { id } = useParams<{ id: string }>()
   const [tasks, setTasks] = useState<TaskData[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -271,13 +275,36 @@ export function TasksPage() {
                         <div className="space-y-2">
                           <h2 className="font-semibold">{task.title}</h2>
                           <p className="text-small leading-6 text-default-500">{task.description}</p>
+                          {(task.generatedTitle && task.generatedTitle !== task.title) || (task.generatedDescription && task.generatedDescription !== task.description) ? (
+                            <Alert color="primary" variant="flat" title={t('tasks.reviewedValues')} description={`${task.generatedTitle ?? ''} — ${task.generatedDescription ?? ''}`} />
+                          ) : null}
                           <div className="flex flex-wrap gap-2">
                             <Chip size="sm" color={statusColor(task.status)} variant="flat" radius="sm">{taskStatusLabel(task.status, t)}</Chip>
                             {task.priority && <Chip size="sm" color={priorityColor(task.priority)} variant="flat" radius="sm">{priorityLabel(task.priority, t)}</Chip>}
                             {task.confidence !== null && <Chip size="sm" variant="flat" radius="sm">{t('tasks.confidence', { value: (task.confidence * 100).toFixed(0) })}</Chip>}
                             {task.sourceTimecode && <Chip size="sm" variant="flat" radius="sm">{task.sourceTimecode}</Chip>}
                             {task.labels.map((label) => <Chip key={label} size="sm" variant="flat" radius="sm">{label}</Chip>)}
+                            <Chip size="sm" variant="flat" radius="sm">{t('tasks.generatedAt')}: {new Date(task.createdAt).toLocaleString(language)}</Chip>
+                            {(task.status !== 'DRAFT' || task.externalTasks.length > 0 || task.generatedTitle !== task.title || task.generatedDescription !== task.description) && (
+                              <Chip size="sm" color="success" variant="flat" radius="sm">{t('tasks.preservedReview')}</Chip>
+                            )}
                           </div>
+                          {task.sourceFactIds.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 text-tiny text-default-400">
+                              <span>{t('tasks.sourceFacts')}:</span>
+                              {task.sourceFactIds.map((factId) => <Chip key={factId} size="sm" variant="dot">{shortId(factId)}</Chip>)}
+                            </div>
+                          )}
+                          {Object.keys(task.confidenceBreakdown).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 text-tiny text-default-400">
+                              <span>{t('tasks.confidenceBreakdown')}:</span>
+                              {Object.entries(task.confidenceBreakdown).map(([key, passed]) => (
+                                <Chip key={key} size="sm" color={passed ? 'success' : 'default'} variant="flat">
+                                  {t(`tasks.confidence.${key}` as Parameters<typeof t>[0])}
+                                </Chip>
+                              ))}
+                            </div>
+                          )}
                           {task.evidence?.length > 0 && (
                             <div className="grid gap-2 pt-2">
                               {task.evidence.map((evidence, index) => (
@@ -288,6 +315,11 @@ export function TasksPage() {
                               ))}
                             </div>
                           )}
+                          {task.externalTasks?.map((external) => (
+                            <Button key={external.id} as="a" href={external.externalUrl} target="_blank" size="sm" variant="flat" radius="sm">
+                              {external.provider}: {external.status}
+                            </Button>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -357,4 +389,8 @@ function formatEvidenceTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60)
   const remainder = Math.floor(seconds % 60)
   return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+}
+
+function shortId(value: string): string {
+  return value.length > 20 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value
 }

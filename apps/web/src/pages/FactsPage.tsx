@@ -20,6 +20,11 @@ interface AtomicFact {
   repairUsed: boolean
   modelName: string
   promptVersion: string
+  schemaVersion: string
+  inputHash: string | null
+  dictionaryHash: string | null
+  retrievalVersion: string | null
+  retrievalManifest: RetrievalManifest | null
 }
 
 interface MergedFact {
@@ -28,6 +33,21 @@ interface MergedFact {
   text: string
   evidence: Array<{ quote: string; startSec: number; endSec: number; chunkIndex?: number }>
   sourceFactIds: string[]
+  modelName: string | null
+  promptVersion: string | null
+  schemaVersion: string
+  inputHash: string | null
+  dictionaryHash: string | null
+  retrievalVersion: string | null
+  retrievalManifest: RetrievalManifest | null
+}
+
+interface RetrievalManifest {
+  manifestHash: string
+  ruleIds: string[]
+  exampleIds: string[]
+  glossaryEntryIds: string[]
+  estimatedPromptTokens: number
 }
 
 interface FactsData { atomic: AtomicFact[]; merged: MergedFact[] }
@@ -97,6 +117,7 @@ function AtomicFactCard({ fact }: { fact: AtomicFact }) {
         </div>
         <blockquote className="border-l-2 border-primary pl-3 text-small text-default-500">{fact.evidenceQuote}</blockquote>
         <p className="text-tiny text-default-400">{formatTime(fact.startSec)}–{formatTime(fact.endSec)} · {t('facts.chunk', { index: fact.chunkIndex + 1 })} · {fact.modelName} · {fact.promptVersion}</p>
+        <Provenance fact={fact} />
       </CardBody>
     </Card>
   )
@@ -122,9 +143,29 @@ function MergedFactCard({ fact }: { fact: MergedFact }) {
             </div>
           ))}
         </div>
+        <Provenance fact={fact} />
       </CardBody>
     </Card>
   )
+}
+
+function Provenance({ fact }: { fact: Pick<AtomicFact, 'schemaVersion' | 'inputHash' | 'dictionaryHash' | 'retrievalVersion' | 'retrievalManifest'> }) {
+  const { t } = useI18n()
+  const manifest = fact.retrievalManifest
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-tiny text-default-400">
+      <Chip size="sm" variant="flat">{fact.schemaVersion}</Chip>
+      {fact.retrievalVersion && <Chip size="sm" color="secondary" variant="flat">{fact.retrievalVersion}</Chip>}
+      {manifest?.exampleIds.map((id) => <Chip key={id} size="sm" color="primary" variant="dot">{t('facts.example')}: {shortId(id)}</Chip>)}
+      {manifest && <span>{t('facts.promptTokens', { count: manifest.estimatedPromptTokens })}</span>}
+      {fact.inputHash && <span>{t('facts.inputHash')}: {shortId(fact.inputHash)}</span>}
+      {fact.dictionaryHash && <span>{t('facts.dictionaryHash')}: {shortId(fact.dictionaryHash)}</span>}
+    </div>
+  )
+}
+
+function shortId(value: string): string {
+  return value.length > 20 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value
 }
 
 function matches(query: string, ...values: string[]): boolean {

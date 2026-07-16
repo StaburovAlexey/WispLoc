@@ -23,7 +23,7 @@ export async function termRoutes(app: FastifyInstance) {
     })
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
     const entry = await createDictionaryEntry(parsed.data)
-    await setTermSuggestionStatus(id, 'ACCEPTED')
+    await setTermSuggestionStatus(id, 'ACCEPTED', parsed.data)
     return entry
   })
 
@@ -35,4 +35,3 @@ export async function termRoutes(app: FastifyInstance) {
     return { ok: true }
   })
 }
-

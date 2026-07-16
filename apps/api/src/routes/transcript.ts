@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   getFullTranscript,
   getSegments,
+  getTranscriptContext,
 } from '@wisploc/core'
 
 export async function transcriptRoutes(app: FastifyInstance) {
@@ -26,6 +27,19 @@ export async function transcriptRoutes(app: FastifyInstance) {
       sequence: s.sequence,
       speaker: s.speaker,
     }))
+  })
+
+  app.post('/api/media/:mediaId/transcript/context', async (req, reply) => {
+    const { mediaId } = req.params as { mediaId: string }
+    const body = (req.body ?? {}) as Record<string, unknown>
+    return getTranscriptContext({
+      mediaFileId: mediaId,
+      segmentIds: Array.isArray(body.segmentIds) ? body.segmentIds.filter((id): id is string => typeof id === 'string') : undefined,
+      startSec: typeof body.startSec === 'number' ? body.startSec : undefined,
+      endSec: typeof body.endSec === 'number' ? body.endSec : undefined,
+      beforeSegments: typeof body.beforeSegments === 'number' ? body.beforeSegments : undefined,
+      afterSegments: typeof body.afterSegments === 'number' ? body.afterSegments : undefined,
+    })
   })
 
   // GET /api/media/:mediaId/export/transcript.txt

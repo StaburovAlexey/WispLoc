@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Accordion, AccordionItem, Alert, Button, Card, CardBody, Chip, Progress, Spinner, Switch } from '@heroui/react'
-import type { JobProgressEvent, MediaFileDto, ProcessingPlan, ProcessingStage } from '@wisploc/shared'
+import type { JobProgressEvent, MediaFileDto, ProcessingPlan, ProcessingStage, ProcessingStageStatus } from '@wisploc/shared'
 import { EmptyState, PageShell } from './PageShell'
 import { friendlyError } from '../shared/errors'
 import { useI18n, type TranslationKey } from '../shared/i18n'
@@ -11,7 +11,7 @@ interface ProcessingOptions {
 }
 
 const PROCESSING_STAGES: ProcessingStage[] = [
-  'transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'summary', 'tasks', 'term-discovery',
+  'transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'tasks', 'summary', 'term-discovery',
 ]
 
 export function MediaPage() {
@@ -24,12 +24,14 @@ export function MediaPage() {
   const [activeMediaId, setActiveMediaId] = useState<string | null>(null)
   const [jobProgress, setJobProgress] = useState(0)
   const [jobStep, setJobStep] = useState<string | null>(null)
+  const [stageStates, setStageStates] = useState<Record<string, ProcessingStageStatus>>({})
   const [jobStartedAt, setJobStartedAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [cancelling, setCancelling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [processingOptions, setProcessingOptions] = useState<Record<string, ProcessingOptions>>({})
   const [processingPlans, setProcessingPlans] = useState<Record<string, ProcessingPlan>>({})
+  const [qualityWarnings, setQualityWarnings] = useState<Record<string, string[]>>({})
 
   const loadFiles = useCallback(async () => {
     try {
@@ -38,7 +40,7 @@ export function MediaPage() {
       setFiles(mediaFiles)
       const jobLists = await Promise.all(mediaFiles.map(async (file) => {
         const jobsResponse = await fetch(`/api/jobs?mediaFileId=${encodeURIComponent(file.id)}`)
-        const jobs = jobsResponse.ok ? await jobsResponse.json() as Array<{ id: string; status: string; progress: number; currentStep: string | null; startedAt: string | null; requestedStages: ProcessingStage[]; useDictionary: boolean }> : []
+        const jobs = jobsResponse.ok ? await jobsResponse.json() as Array<{ id: string; status: string; progress: number; currentStep: string | null; startedAt: string | null; requestedStages: ProcessingStage[]; stageStates: Record<string, ProcessingStageStatus>; useDictionary: boolean; qualityWarnings: string[] }> : []
         return { mediaId: file.id, jobs }
       }))
       const activeEntry = jobLists
@@ -49,7 +51,9 @@ export function MediaPage() {
       setActiveJobId(activeJob?.id ?? null)
       setJobProgress(activeJob?.progress ?? 0)
       setJobStep(activeJob?.currentStep ?? null)
+      setStageStates(activeJob?.stageStates ?? {})
       setJobStartedAt(activeJob?.startedAt ? new Date(activeJob.startedAt).getTime() : null)
+      setQualityWarnings(Object.fromEntries(jobLists.map(({ mediaId, jobs }) => [mediaId, jobs[0]?.qualityWarnings ?? []])))
       const settingsResponse = await fetch('/api/settings')
       const settings = settingsResponse.ok ? await settingsResponse.json() : {}
       setProcessingOptions((current) => Object.fromEntries(mediaFiles.map((file) => [
@@ -76,7 +80,8 @@ export function MediaPage() {
         const evt: JobProgressEvent = JSON.parse(e.data)
         setJobProgress(evt.progress)
         setJobStep(evt.currentStep ?? null)
-        if (evt.status === 'DONE' || evt.status === 'FAILED' || evt.status === 'CANCELLED') {
+        if (evt.stageStates) setStageStates(evt.stageStates)
+        if (evt.status === 'DONE' || evt.status === 'DONE_WITH_WARNINGS' || evt.status === 'FAILED' || evt.status === 'CANCELLED') {
           setActiveJobId(null)
           setActiveMediaId(null)
           setJobStartedAt(null)
@@ -142,6 +147,7 @@ export function MediaPage() {
       setJobStartedAt(Date.now())
       setJobProgress(0)
       setJobStep(null)
+      setStageStates({})
     } catch (err: any) {
       setError(friendlyError(err.message, t('media.startProcessingFailed'), language))
     }
@@ -252,6 +258,14 @@ export function MediaPage() {
                     )}
                   />
                 )}
+                {!processing && (qualityWarnings[file.id]?.length ?? 0) > 0 && (
+                  <Alert
+                    color="warning"
+                    variant="flat"
+                    title={t('media.qualityWarningTitle')}
+                    description={qualityWarnings[file.id].join(' ')}
+                  />
+                )}
                 <Accordion variant="splitted" className="px-0">
                   <AccordionItem
                     key="processing-stages"
@@ -265,7 +279,8 @@ export function MediaPage() {
                         const plan = processingPlans[file.id]
                         const autoAdded = plan?.autoAddedStages.includes(stage) ?? false
                         const selected = plan?.executionStages.includes(stage) ?? options.stages.includes(stage)
-                        const active = activeJobId !== null && activeMediaId === file.id && isCurrentStage(stage, jobStep)
+                        const state = activeJobId !== null && activeMediaId === file.id ? stageStates[stageKey(stage)] : undefined
+                        const active = state === 'running' || (activeJobId !== null && activeMediaId === file.id && isCurrentStage(stage, jobStep))
                         return (
                           <div key={stage} className="flex min-h-12 items-center justify-between gap-3 rounded-small bg-content1 px-3 py-2">
                             <Switch
@@ -278,6 +293,7 @@ export function MediaPage() {
                             </Switch>
                             <div className="flex items-center gap-2">
                               {autoAdded && <Chip size="sm" variant="flat">{t('media.requiredStage')}</Chip>}
+                              {state && state !== 'running' && <Chip size="sm" color={stageStatusColor(state)} variant="flat">{t(`media.stageStatus.${state}` as TranslationKey)}</Chip>}
                               {active && <Spinner size="sm" color="primary" />}
                             </div>
                           </div>
@@ -312,12 +328,23 @@ function defaultProcessingOptions(useDictionary = false, discoverTerms = false, 
       ...(useDictionary ? ['normalization' as const] : []),
       'fact-extraction',
       'fact-deduplication',
-      'summary',
       'tasks',
+      'summary',
       ...(discoverTerms ? ['term-discovery' as const] : []),
     ],
     useDictionary,
   }
+}
+
+function stageKey(stage: ProcessingStage): string {
+  return stage.replace(/-/g, '_')
+}
+
+function stageStatusColor(status: ProcessingStageStatus): 'default' | 'success' | 'danger' | 'warning' {
+  if (status === 'completed' || status === 'reused') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'cancelled') return 'warning'
+  return 'default'
 }
 
 function isCurrentStage(stage: ProcessingStage, currentStep: string | null): boolean {
@@ -372,6 +399,7 @@ function formatElapsed(startedAt: number | null, now: number): string {
 
 function statusColor(status: string): 'default' | 'primary' | 'success' | 'danger' | 'warning' {
   if (status === 'DONE') return 'success'
+  if (status === 'DONE_WITH_WARNINGS') return 'warning'
   if (status === 'FAILED') return 'danger'
   if (status === 'CANCELLED') return 'default'
   if (status === 'UPLOADED') return 'default'
