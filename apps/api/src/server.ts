@@ -18,6 +18,7 @@ import { maintenanceRoutes } from './routes/maintenance'
 import { dictionaryRoutes } from './routes/dictionary'
 import { termRoutes } from './routes/terms'
 import { factRoutes } from './routes/facts'
+import { knowledgeRoutes } from './routes/knowledge'
 import { ensureDatabaseSchema, loadConfig } from '@wisploc/core'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -75,6 +76,7 @@ export async function createServer(options: CreateServerOptions = {}) {
   await app.register(dictionaryRoutes) // paths are fully qualified
   await app.register(termRoutes) // paths are fully qualified
   await app.register(factRoutes) // paths are fully qualified
+  await app.register(knowledgeRoutes) // paths are fully qualified
 
   // Serve the React web build (production)
   const webDist = findWebDist()

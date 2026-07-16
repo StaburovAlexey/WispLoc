@@ -10,6 +10,7 @@ import { SettingsPage } from '../pages/SettingsPage'
 import { DictionaryPage } from '../pages/DictionaryPage'
 import { TermSuggestionsPage } from '../pages/TermSuggestionsPage'
 import { FactsPage } from '../pages/FactsPage'
+import { KnowledgePage } from '../pages/KnowledgePage'
 
 export function App() {
   return (
@@ -23,6 +24,7 @@ export function App() {
       <Route path="/media/:id/terms" element={<TermSuggestionsPage />} />
       <Route path="/media/:id/facts" element={<FactsPage />} />
       <Route path="/dictionary" element={<DictionaryPage />} />
+      <Route path="/knowledge" element={<KnowledgePage />} />
       <Route path="/integrations" element={<IntegrationsPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/setup" replace />} />
