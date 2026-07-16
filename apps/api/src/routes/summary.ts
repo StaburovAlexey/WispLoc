@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import {
   getLatestSummary,
   getChunkSummaries,
+  getSummaryFactEvidence,
 } from '@wisploc/core'
 
 export async function summaryRoutes(app: FastifyInstance) {
@@ -19,6 +20,15 @@ export async function summaryRoutes(app: FastifyInstance) {
   app.get('/api/media/:mediaId/summary/chunks', async (req, reply) => {
     const { mediaId } = req.params as { mediaId: string }
     return getChunkSummaries(mediaId)
+  })
+
+  app.post('/api/media/:mediaId/summary/evidence', async (req, reply) => {
+    const { mediaId } = req.params as { mediaId: string }
+    const factIds = (req.body as { factIds?: unknown } | undefined)?.factIds
+    if (!Array.isArray(factIds) || !factIds.every((id) => typeof id === 'string')) {
+      return reply.status(400).send({ error: 'factIds must be an array of strings' })
+    }
+    return getSummaryFactEvidence(mediaId, factIds)
   })
 
   // GET /api/media/:mediaId/export/summary.md

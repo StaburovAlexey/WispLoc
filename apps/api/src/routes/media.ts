@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { PATHS, SUPPORTED_MIME_TYPES } from '@wisploc/shared'
+import { PATHS, SUPPORTED_MIME_TYPES, processMediaRequestSchema } from '@wisploc/shared'
 import {
   createMediaRecord,
   getMediaRecord,
@@ -15,6 +15,10 @@ import {
   probeMedia,
   createJob,
   createLogger,
+  loadConfig,
+  listJobs,
+  cancelJob,
+  buildProcessingPlan,
 } from '@wisploc/core'
 
 const mediaLog = createLogger('media-api')
@@ -132,21 +136,54 @@ export async function mediaRoutes(app: FastifyInstance) {
   })
 
   // POST /api/media/:id/process — create a PENDING job (worker picks it up)
+  app.post('/:id/process-plan', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const parsed = processMediaRequestSchema.safeParse(req.body ?? {})
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    try {
+      return await buildProcessingPlan(id, parsed.data.stages)
+    } catch (error: any) {
+      return reply.status(error.message === 'Media not found' ? 404 : 409).send({ error: error.message })
+    }
+  })
+
   app.post('/:id/process', async (req, reply) => {
     const { id } = req.params as { id: string }
     const record = await getMediaRecord(id)
     if (!record) return reply.status(404).send({ error: 'Media not found' })
 
-    const job = await createJob(id, 'full')
-    mediaLog.info('media processing requested', { mediaId: id, jobId: job.id })
+    const parsed = processMediaRequestSchema.safeParse(req.body ?? {})
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    const config = loadConfig()
+    let plan
+    try {
+      plan = await buildProcessingPlan(id, parsed.data.stages)
+    } catch (error: any) {
+      return reply.status(409).send({ error: error.message })
+    }
+    const job = await createJob(id, 'full', {
+      pipelineVersion: config.enableEvidencePipeline ? 'evidence-v2' : 'legacy-v1',
+      requestedStages: plan.executionStages,
+      useDictionary: parsed.data.useDictionary,
+    })
+    mediaLog.info('media processing requested', {
+      mediaId: id,
+      jobId: job.id,
+      pipelineVersion: job.pipelineVersion,
+      useDictionary: job.useDictionary,
+      requestedStages: job.requestedStages,
+      autoAddedStages: plan.autoAddedStages,
+    })
     return { jobId: job.id }
   })
 
   // POST /api/media/:id/cancel
   app.post('/:id/cancel', async (req, reply) => {
     const { id } = req.params as { id: string }
+    const activeJobs = (await listJobs(id)).filter((job) => job.status === 'PENDING' || job.status === 'PROCESSING')
+    await Promise.all(activeJobs.map((job) => cancelJob(job.id)))
     await updateMediaStatus(id, 'CANCELLED')
-    mediaLog.warn('media processing cancel requested', { mediaId: id })
+    mediaLog.warn('media processing cancel requested', { mediaId: id, jobIds: activeJobs.map((job) => job.id) })
     return { ok: true }
   })
 }

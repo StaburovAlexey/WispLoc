@@ -15,7 +15,10 @@ import { tasksRoutes } from './routes/tasks'
 import { integrationRoutes } from './routes/integrations'
 import { settingsRoutes } from './routes/settings'
 import { maintenanceRoutes } from './routes/maintenance'
-import { loadConfig } from '@wisploc/core'
+import { dictionaryRoutes } from './routes/dictionary'
+import { termRoutes } from './routes/terms'
+import { factRoutes } from './routes/facts'
+import { ensureDatabaseSchema, loadConfig } from '@wisploc/core'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 type CorsOrigin = string | boolean | RegExp | Array<string | boolean | RegExp>
@@ -39,6 +42,7 @@ function findWebDist(): string | null {
 }
 
 export async function createServer(options: CreateServerOptions = {}) {
+  await ensureDatabaseSchema()
   const config = loadConfig()
   const app = Fastify({
     logger: options.logger === false ? false : { level: 'info' },
@@ -68,6 +72,9 @@ export async function createServer(options: CreateServerOptions = {}) {
   await app.register(integrationRoutes) // paths are fully qualified
   await app.register(settingsRoutes)   // paths are fully qualified
   await app.register(maintenanceRoutes) // paths are fully qualified
+  await app.register(dictionaryRoutes) // paths are fully qualified
+  await app.register(termRoutes) // paths are fully qualified
+  await app.register(factRoutes) // paths are fully qualified
 
   // Serve the React web build (production)
   const webDist = findWebDist()

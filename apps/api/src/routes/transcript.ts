@@ -21,6 +21,9 @@ export async function transcriptRoutes(app: FastifyInstance) {
       startSec: s.startSec,
       endSec: s.endSec,
       text: s.text,
+      originalText: s.text,
+      normalizedText: s.normalizedText,
+      sequence: s.sequence,
       speaker: s.speaker,
     }))
   })

@@ -116,6 +116,9 @@ export async function integrationRoutes(app: FastifyInstance) {
 
     const task = await getTask(taskId)
     if (!task) return reply.status(404).send({ error: 'Task not found' })
+    if (task.status !== 'APPROVED') {
+      return reply.status(409).send({ error: 'Only approved tasks can be created externally' })
+    }
 
     const integration = await getIntegration(body.integrationId)
     if (!integration) return reply.status(404).send({ error: 'Integration not found' })
