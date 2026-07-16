@@ -17,7 +17,7 @@ test('serves setup UI and local API from production server', async ({ page, requ
   await expect(page.getByRole('button', { name: /Install all required components|Установить все необходимые компоненты/i })).toBeVisible()
   await expect(page.getByRole('heading', { name: /Setup log|Лог установки/i })).toBeVisible()
 
-  await page.goto('/dashboard')
+  await page.goto('/media')
   await expect(page.getByRole('navigation').getByText('WispLoc')).toBeVisible()
   await expect(page.getByRole('button', { name: /Setup|Установка/i })).toBeVisible()
 

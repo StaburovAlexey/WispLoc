@@ -30,6 +30,8 @@ import {
   getJob,
   loadConfig,
   createLogger,
+  runEvidenceAnalysis,
+  invalidateAfterTranscription,
 } from '@wisploc/core'
 
 const pipelineLog = createLogger('pipeline', 'worker.log')
@@ -39,7 +41,7 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   await updateJobProgress(jobId, {
     status: 'PROCESSING',
     progress: 5,
-    currentStep: 'probing',
+    currentStep: 'starting',
   })
 
   const record = await getMediaRecordRaw(mediaId)
@@ -52,80 +54,38 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     status: record.status,
   })
 
-  // 1. Probe
-  const probe = await probeMedia(record.sourcePath)
-  pipelineLog.info('media probed', {
-    mediaId,
-    jobId,
-    durationSec: probe.durationSec,
-    audioCodec: probe.audioCodec,
-    videoCodec: probe.videoCodec,
-  })
-  if (probe.durationSec) {
-    await updateMediaDuration(mediaId, probe.durationSec)
-  }
-  await updateJobProgress(jobId, { progress: 10, currentStep: 'extracting_audio' })
-  await updateMediaStatus(mediaId, 'EXTRACTING_AUDIO')
-
-  // 2. Extract chunks — skip if chunks already exist (retry/resume)
+  const processingJob = await getJob(jobId)
+  if (!processingJob) throw new Error('Processing job not found')
+  const requested = new Set(processingJob.requestedStages)
   let dbChunks = await listChunksByMedia(mediaId)
-  if (dbChunks.length === 0) {
-    const chunksDir = await getChunksDir(mediaId)
-    const config = loadConfig()
-    const chunkSeconds = Math.max(60, Math.round(config.chunkMinutes * 60))
-    pipelineLog.info('audio chunk extraction started', {
-      mediaId,
-      jobId,
-      chunksDir,
-      chunkSeconds,
-    })
-    const chunks = await extractChunks(record.sourcePath, chunksDir, chunkSeconds)
-    pipelineLog.info('audio chunk extraction completed', {
-      mediaId,
-      jobId,
-      chunkCount: chunks.length,
-    })
+  let totalChunks = dbChunks.length
 
-    await createChunksBatch(
-      chunks.map((c) => ({
+  if (requested.has('transcription')) {
+    await updateJobProgress(jobId, { progress: 8, currentStep: 'transcription' })
+    const probe = await probeMedia(record.sourcePath)
+    if (probe.durationSec) await updateMediaDuration(mediaId, probe.durationSec)
+    await updateMediaStatus(mediaId, 'EXTRACTING_AUDIO')
+    if (dbChunks.length === 0) {
+      const chunksDir = await getChunksDir(mediaId)
+      const config = loadConfig()
+      const chunkSeconds = Math.max(60, Math.round(config.chunkMinutes * 60))
+      const chunks = await extractChunks(record.sourcePath, chunksDir, chunkSeconds)
+      await createChunksBatch(chunks.map((chunk) => ({
         mediaFileId: mediaId,
-        index: c.index,
-        startSec: c.startSec,
-        endSec: probe.durationSec ? Math.min(c.endSec, probe.durationSec) : c.endSec,
-        audioPath: c.audioPath,
-      })),
-    )
-    dbChunks = await listChunksByMedia(mediaId)
-  } else {
-    pipelineLog.info('existing chunks reused', { mediaId, jobId, chunkCount: dbChunks.length })
-  }
+        index: chunk.index,
+        startSec: chunk.startSec,
+        endSec: probe.durationSec ? Math.min(chunk.endSec, probe.durationSec) : chunk.endSec,
+        audioPath: chunk.audioPath,
+      })))
+      dbChunks = await listChunksByMedia(mediaId)
+    }
+    totalChunks = dbChunks.length
+    if (totalChunks === 0) throw new Error('FFmpeg did not produce any audio chunks')
+    await updateMediaStatus(mediaId, 'TRANSCRIBING')
 
-  await updateJobProgress(jobId, { progress: 30, currentStep: 'transcribing' })
-  await updateMediaStatus(mediaId, 'TRANSCRIBING')
-
-  const totalChunks = dbChunks.length
-  if (totalChunks === 0) {
-    throw new Error('FFmpeg did not produce any audio chunks')
-  }
-
-  // 3. Transcribe each chunk sequentially (skip already-DONE chunks)
-  for (let i = 0; i < totalChunks; i++) {
+    for (let i = 0; i < totalChunks; i++) {
     await throwIfCancelled(jobId)
     const chunk = dbChunks[i]
-    if (chunk.status === 'DONE') {
-      const existingTranscript = await getChunkTranscriptText(chunk.id)
-      if (existingTranscript.trim()) {
-        pipelineLog.info('transcription chunk reused', {
-          mediaId,
-          jobId,
-          chunkId: chunk.id,
-          chunkIndex: chunk.index,
-        })
-        continue // resume support
-      }
-      await updateChunkStatus(chunk.id, 'PENDING')
-    }
-
     await updateChunkStatus(chunk.id, 'PROCESSING')
     await updateJobProgress(jobId, {
       progress: 30 + Math.round((i / totalChunks) * 50),
@@ -174,15 +134,24 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       })
       throw new Error(`Transcription failed for chunk ${chunk.index}: ${err.message ?? String(err)}`)
     }
+    }
+    await invalidateAfterTranscription(mediaId)
+  } else {
+    pipelineLog.info('transcription stage skipped', { mediaId, jobId })
   }
 
   dbChunks = await listChunksByMedia(mediaId)
 
-  await updateJobProgress(jobId, { progress: 80, currentStep: 'summarizing' })
-  await updateMediaStatus(mediaId, 'SUMMARIZING')
+  if (processingJob?.pipelineVersion === 'evidence-v2') {
+    const hasEvidenceStages = processingJob.requestedStages.some((stage) => stage !== 'transcription')
+    if (hasEvidenceStages) {
+      await updateMediaStatus(mediaId, requested.has('tasks') ? 'EXTRACTING_TASKS' : 'SUMMARIZING')
+      await runEvidenceAnalysis(mediaId, jobId)
+    }
+  } else {
 
   // 4. Summarize each chunk transcript. Existing chunk summaries are reused per chunk.
-  const existingChunkSummaries = await loadExistingChunkSummariesByIndex(mediaId)
+  const existingChunkSummaries = await loadExistingChunkSummariesByIndex(mediaId, dbChunks)
   const chunkSummaries: Awaited<ReturnType<typeof summarizeChunk>>[] = []
   for (let i = 0; i < totalChunks; i++) {
     await throwIfCancelled(jobId)
@@ -276,11 +245,12 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     pipelineLog.error('final summary or task extraction failed', { mediaId, jobId, error: err })
     throw new Error(`Final summary failed: ${err.message ?? String(err)}`)
   }
+  }
 
   await updateJobProgress(jobId, { progress: 98, currentStep: 'finalizing' })
 
   // 6. Done
-  await deleteOriginalIfConfigured(record.sourcePath)
+  if (requested.has('transcription')) await deleteOriginalIfConfigured(record.sourcePath)
   await updateMediaStatus(mediaId, 'DONE')
   await updateJobProgress(jobId, { status: 'DONE', progress: 100, currentStep: 'done' })
   pipelineLog.info('pipeline completed', { mediaId, jobId })
@@ -301,6 +271,7 @@ async function deleteOriginalIfConfigured(sourcePath: string): Promise<void> {
 
 async function loadExistingChunkSummariesByIndex(
   mediaId: string,
+  chunks: Array<{ index: number; startSec: number; endSec: number }>,
 ): Promise<Map<number, Awaited<ReturnType<typeof summarizeChunk>>>> {
   const existing = await getChunkSummaries(mediaId)
   const chunkSummaries = existing.filter((summary) => summary.kind === 'chunk')
@@ -308,10 +279,12 @@ async function loadExistingChunkSummariesByIndex(
 
   for (const summary of chunkSummaries) {
     const chunkIndex = typeof summary.chunkIndex === 'number' ? summary.chunkIndex : byIndex.size
+    const chunk = chunks.find((item) => item.index === chunkIndex)
+    if (!chunk || chunk.startSec < 0 || chunk.endSec <= chunk.startSec) continue
     byIndex.set(chunkIndex, {
       chunkIndex,
-      startSec: 0,
-      endSec: 0,
+      startSec: chunk.startSec,
+      endSec: chunk.endSec,
       summary: summary.shortSummary ?? '',
       keyPoints: summary.keyPoints,
       decisions: summary.decisions,
