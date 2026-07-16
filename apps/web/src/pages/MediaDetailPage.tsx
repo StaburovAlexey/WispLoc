@@ -12,12 +12,15 @@ export function MediaDetailPage() {
   const navigate = useNavigate()
   const [media, setMedia] = useState<MediaFileDto | null>(null)
   const [loading, setLoading] = useState(true)
+  const [termCount, setTermCount] = useState(0)
 
   const loadMedia = useCallback(async () => {
     if (!id) return
     try {
       const res = await fetch(`/api/media/${id}`)
       if (res.ok) setMedia(await res.json())
+      const termsResponse = await fetch(`/api/media/${id}/terms`)
+      if (termsResponse.ok) setTermCount((await termsResponse.json()).length)
     } catch {}
     setLoading(false)
   }, [id])
@@ -51,10 +54,12 @@ export function MediaDetailPage() {
         />
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         <ActionCard title={t('transcript.title')} desc={t('media.transcriptCardDescription')} onClick={() => navigate(`/media/${id}/transcript`)} />
+        <ActionCard title={t('facts.title')} desc={t('facts.cardDescription')} onClick={() => navigate(`/media/${id}/facts`)} />
         <ActionCard title={t('summary.title')} desc={t('media.summaryCardDescription')} onClick={() => navigate(`/media/${id}/summary`)} />
         <ActionCard title={t('tasks.title')} desc={t('media.tasksCardDescription')} onClick={() => navigate(`/media/${id}/tasks`)} />
+        {termCount > 0 && <ActionCard title={t('terms.title')} desc={t('terms.found', { count: termCount })} onClick={() => navigate(`/media/${id}/terms`)} />}
       </div>
 
       <div className="flex justify-between">

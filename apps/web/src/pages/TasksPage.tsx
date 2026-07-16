@@ -18,6 +18,10 @@ interface TaskData {
   dueDateHint: string | null
   confidence: number | null
   status: string
+  pipelineVersion: 'legacy-v1' | 'evidence-v2'
+  sourceFactIds: string[]
+  evidence: Array<{ quote: string; startSec: number; endSec: number; chunkIndex: number }>
+  mergedCandidateIds: string[]
   createdAt: string
 }
 
@@ -274,6 +278,16 @@ export function TasksPage() {
                             {task.sourceTimecode && <Chip size="sm" variant="flat" radius="sm">{task.sourceTimecode}</Chip>}
                             {task.labels.map((label) => <Chip key={label} size="sm" variant="flat" radius="sm">{label}</Chip>)}
                           </div>
+                          {task.evidence?.length > 0 && (
+                            <div className="grid gap-2 pt-2">
+                              {task.evidence.map((evidence, index) => (
+                                <div key={`${evidence.chunkIndex}-${evidence.startSec}-${index}`} className="rounded-small bg-content1 p-3 text-small">
+                                  <span className="mr-2 font-mono text-primary">{formatEvidenceTime(evidence.startSec)}</span>
+                                  <span className="text-default-600">{evidence.quote}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -337,4 +351,10 @@ function taskStatusLabel(status: string, t: ReturnType<typeof useI18n>['t']): st
   if (status === 'APPROVED') return t('taskStatus.approved')
   if (status === 'REJECTED') return t('taskStatus.rejected')
   return status
+}
+
+function formatEvidenceTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const remainder = Math.floor(seconds % 60)
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
 }

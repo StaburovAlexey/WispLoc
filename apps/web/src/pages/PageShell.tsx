@@ -60,8 +60,8 @@ export function PageShell({ title, subtitle, eyebrow, actions, children, width =
 
 const NAV_ITEMS = [
   { labelKey: 'nav.setup', href: '/setup' },
-  { labelKey: 'nav.dashboard', href: '/dashboard' },
   { labelKey: 'nav.media', href: '/media' },
+  { labelKey: 'nav.dictionary', href: '/dictionary' },
   { labelKey: 'nav.integrations', href: '/integrations' },
   { labelKey: 'nav.settings', href: '/settings' },
 ] as const
