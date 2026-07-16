@@ -61,6 +61,7 @@ const DEFAULT_STEPS: StepState[] = [
 
 export function SetupPage() {
   const { t, language } = useI18n()
+  const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
   const [steps, setSteps] = useState<StepState[]>(DEFAULT_STEPS)
   const [complete, setComplete] = useState(false)
@@ -88,6 +89,7 @@ export function SetupPage() {
       .then((response) => response.json())
       .then((dto: SetupStatusDto) => applySetupStatus(dto))
       .catch(() => {})
+      .finally(() => setLoading(false))
   }, [applySetupStatus])
 
   useEffect(() => {
@@ -173,6 +175,17 @@ export function SetupPage() {
     logElement.scrollTop = logElement.scrollHeight
   }, [visibleLogs.length, lastVisibleLog])
 
+  if (loading) {
+    return (
+      <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
+        <AppTopBar />
+        <div className="flex min-h-[calc(100vh-96px)] items-center justify-center px-4">
+          <Spinner size="lg" color="primary" />
+        </div>
+      </main>
+    )
+  }
+
   if (complete) {
     return (
       <main data-theme="dark" className="dark min-h-screen bg-background text-foreground">
@@ -185,8 +198,8 @@ export function SetupPage() {
                 <h1 className="text-4xl font-bold">WispLoc</h1>
                 <p className="text-default-500">{t('setup.readyDescription')}</p>
               </div>
-              <Button color="primary" size="lg" radius="sm" onPress={() => (window.location.href = '/dashboard')}>
-                {t('setup.openDashboard')}
+              <Button color="primary" size="lg" radius="sm" onPress={() => (window.location.href = '/media')}>
+                {t('setup.openMedia')}
               </Button>
             </CardBody>
           </Card>

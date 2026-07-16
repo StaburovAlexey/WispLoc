@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, CardBody, CardHeader, Divider, Input, Select, SelectItem, Switch } from '@heroui/react'
+import { SelectableOptionCard } from '../components/SelectableOptionCard'
 import { LoadingPage, PageShell } from './PageShell'
 import { friendlyError } from '../shared/errors'
 import { FIELD_PROPS, TEXT_FIELD_PROPS } from '../shared/formControls'
@@ -8,9 +9,13 @@ import { useI18n, type TranslationKey } from '../shared/i18n'
 interface SettingsData {
   language: string
   summaryLanguage: string
+  deduplicationLevel: 'fast' | 'standard' | 'precise'
   cleanChunks: boolean
   deleteOriginalAfterProcessing: boolean
   ollamaHost: string
+  useDictionaryByDefault: boolean
+  discoverTermsByDefault: boolean
+  showNormalizedTranscriptByDefault: boolean
 }
 
 interface WhisperModel {
@@ -247,46 +252,60 @@ export function SettingsPage() {
 
             <div className="grid grid-cols-3 gap-3">
               {whisperModels.map((model) => (
-                <Card
+                <SelectableOptionCard
                   key={model.key}
-                  radius="sm"
-                  className={model.selected ? 'border border-primary bg-content2' : 'border border-default-100 bg-content2'}
-                >
-                  <CardBody className="gap-3 p-4">
-                    <div>
-                      <p className="font-medium">{model.label}</p>
-                      <p className="text-small text-default-500">{model.fileName}</p>
-                    </div>
-                    <p className="min-h-10 text-small text-default-500">{model.description}</p>
-                    <Alert
-                      color={model.installed ? 'success' : 'warning'}
-                      variant="flat"
-                      title={model.installed ? (model.selected ? t('common.selected') : t('common.installed')) : t('common.notInstalled')}
-                    />
-                    {model.installed ? (
-                      <Button
-                        color={model.selected ? 'primary' : 'default'}
-                        variant={model.selected ? 'solid' : 'flat'}
-                        radius="sm"
-                        isDisabled={model.selected}
-                        onPress={() => selectInstalledWhisperModel(model.key)}
-                      >
-                        {model.selected ? t('common.selected') : t('settings.useThisModel')}
-                      </Button>
-                    ) : (
-                      <Button
-                        color="primary"
-                        radius="sm"
-                        isLoading={installingWhisperModel === model.key}
-                        isDisabled={installingWhisperModel !== null}
-                        onPress={() => installSelectedWhisperModel(model.key)}
-                      >
-                        {t('settings.installModel')}
-                      </Button>
-                    )}
-                  </CardBody>
-                </Card>
+                  title={model.label}
+                  subtitle={model.fileName}
+                  description={model.description}
+                  selected={model.selected}
+                  statusColor={model.installed ? 'success' : 'warning'}
+                  statusTitle={model.installed ? (model.selected ? t('common.selected') : t('common.installed')) : t('common.notInstalled')}
+                  actionLabel={model.installed ? (model.selected ? t('common.selected') : t('settings.useThisModel')) : t('settings.installModel')}
+                  actionDisabled={model.installed ? model.selected : installingWhisperModel !== null}
+                  actionLoading={!model.installed && installingWhisperModel === model.key}
+                  onAction={() => model.installed ? selectInstalledWhisperModel(model.key) : installSelectedWhisperModel(model.key)}
+                />
               ))}
+            </div>
+          </div>
+
+          <div className="col-span-2 rounded-small bg-content1 p-4">
+            <div className="mb-3">
+              <p className="font-medium">{t('settings.deduplicationTitle')}</p>
+              <p className="text-small text-default-500">{t('settings.deduplicationDescription')}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {(['fast', 'standard', 'precise'] as const).map((level) => (
+                <SelectableOptionCard
+                  key={level}
+                  title={t(`settings.deduplication.${level}.title` as TranslationKey)}
+                  description={t(`settings.deduplication.${level}.description` as TranslationKey)}
+                  selected={form.deduplicationLevel === level}
+                  statusColor={form.deduplicationLevel === level ? 'primary' : 'default'}
+                  statusTitle={form.deduplicationLevel === level ? t('common.selected') : t('settings.deduplicationChoose')}
+                  showStatus={false}
+                  actionLabel={form.deduplicationLevel === level ? t('common.selected') : t('settings.deduplicationChoose')}
+                  onAction={() => setForm({ ...form, deduplicationLevel: level })}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="col-span-2 rounded-small bg-content1 p-4">
+            <div className="mb-4">
+              <p className="font-medium">{t('settings.dictionary')}</p>
+              <p className="text-small text-default-500">{t('settings.dictionaryDefaultsDescription')}</p>
+            </div>
+            <div className="grid gap-4">
+              <Switch color="primary" isSelected={form.useDictionaryByDefault} onValueChange={(useDictionaryByDefault) => setForm({ ...form, useDictionaryByDefault })}>
+                {t('settings.useDictionaryDefault')}
+              </Switch>
+              <Switch color="primary" isSelected={form.discoverTermsByDefault} onValueChange={(discoverTermsByDefault) => setForm({ ...form, discoverTermsByDefault })}>
+                {t('settings.discoverTermsDefault')}
+              </Switch>
+              <Switch color="primary" isSelected={form.showNormalizedTranscriptByDefault} onValueChange={(showNormalizedTranscriptByDefault) => setForm({ ...form, showNormalizedTranscriptByDefault })}>
+                {t('settings.showNormalizedDefault')}
+              </Switch>
             </div>
           </div>
 
