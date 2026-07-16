@@ -78,6 +78,8 @@ export async function jobsRoutes(app: FastifyInstance) {
         progress: job.progress,
         currentStep: job.currentStep ?? undefined,
         error: job.errorMessage ?? undefined,
+        stageStates: job.stageStates,
+        qualityWarnings: job.qualityWarnings,
       }
       const payload = JSON.stringify(event)
       if (payload !== lastPayload) {

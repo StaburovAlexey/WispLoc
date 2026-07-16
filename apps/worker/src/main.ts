@@ -1,7 +1,7 @@
 /**
  * WispLoc Worker — polls SQLite for PENDING jobs and processes them sequentially.
  */
-import { createLogger, ensureDatabaseSchema, getPrisma } from '@wisploc/core'
+import { createLogger, ensureDatabaseSchema, finishRunningPipelineStages, getPrisma } from '@wisploc/core'
 import { runPipeline } from './processor/pipeline'
 
 const prisma = getPrisma()
@@ -95,7 +95,9 @@ export async function startWorker() {
 
         try {
           await runWithHeartbeat(job.id, () => runPipeline(mediaId, job.id))
-          await markJobFinished(job.id, 'DONE', startedAt)
+          const completed = await prisma.processingJob.findUnique({ where: { id: job.id }, select: { qualityWarningsJson: true } })
+          const warnings = readStringArray(completed?.qualityWarningsJson)
+          await markJobFinished(job.id, warnings.length > 0 ? 'DONE_WITH_WARNINGS' : 'DONE', startedAt)
           console.log(`[worker] Job ${job.id} completed`)
           workerLog.info('job completed', { jobId: job.id, mediaId })
         } catch (err: any) {
@@ -106,6 +108,7 @@ export async function startWorker() {
             mediaId,
             error: err,
           })
+          await finishRunningPipelineStages(job.id, cancelled ? 'cancelled' : 'failed')
           await markJobFinished(job.id, cancelled ? 'CANCELLED' : 'FAILED', startedAt, cancelled ? null : err.message)
           await prisma.mediaFile.update({
             where: { id: mediaId },
@@ -135,6 +138,7 @@ export async function claimNextPendingJob(): Promise<ClaimedJob | null> {
       finishedAt = NULL,
       durationMs = NULL,
       errorMessage = NULL,
+      qualityWarningsJson = '[]',
       updatedAt = CURRENT_TIMESTAMP
     WHERE id = (
       SELECT id
@@ -151,7 +155,7 @@ export async function claimNextPendingJob(): Promise<ClaimedJob | null> {
 
 async function markJobFinished(
   jobId: string,
-  status: 'DONE' | 'FAILED' | 'CANCELLED',
+  status: 'DONE' | 'DONE_WITH_WARNINGS' | 'FAILED' | 'CANCELLED',
   startedAt: Date,
   errorMessage: string | null = null,
 ): Promise<void> {
@@ -165,6 +169,15 @@ async function markJobFinished(
       durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
     },
   })
+}
+
+function readStringArray(value: string | null | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 async function failDuplicateProcessingJobs(): Promise<void> {

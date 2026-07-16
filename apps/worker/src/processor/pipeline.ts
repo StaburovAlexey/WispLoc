@@ -4,6 +4,7 @@
  * Runs inside the worker process. Called when a PENDING job is claimed.
  */
 import fs from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import {
   getMediaRecordRaw,
   updateMediaDuration,
@@ -16,7 +17,11 @@ import {
   listChunksByMedia,
   updateChunkStatus,
   updateChunkTranscriptPath,
+  updateChunkTranscriptionMetadata,
+  canReuseTranscription,
   transcribeChunk,
+  clampWhisperSegments,
+  getWhisperVocabulary,
   saveSegments,
   saveRawTranscript,
   getChunkTranscriptText,
@@ -32,6 +37,7 @@ import {
   createLogger,
   runEvidenceAnalysis,
   invalidateAfterTranscription,
+  updatePipelineStages,
 } from '@wisploc/core'
 
 const pipelineLog = createLogger('pipeline', 'worker.log')
@@ -57,10 +63,13 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   const processingJob = await getJob(jobId)
   if (!processingJob) throw new Error('Processing job not found')
   const requested = new Set(processingJob.requestedStages)
+  const stageStates = { ...processingJob.stageStates }
   let dbChunks = await listChunksByMedia(mediaId)
   let totalChunks = dbChunks.length
 
   if (requested.has('transcription')) {
+    stageStates.transcription = 'running'
+    await updatePipelineStages(jobId, stageStates)
     await updateJobProgress(jobId, { progress: 8, currentStep: 'transcription' })
     const probe = await probeMedia(record.sourcePath)
     if (probe.durationSec) await updateMediaDuration(mediaId, probe.durationSec)
@@ -82,10 +91,21 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
     totalChunks = dbChunks.length
     if (totalChunks === 0) throw new Error('FFmpeg did not produce any audio chunks')
     await updateMediaStatus(mediaId, 'TRANSCRIBING')
+    let transcriptionChanged = false
+    let reusedChunks = 0
 
     for (let i = 0; i < totalChunks; i++) {
     await throwIfCancelled(jobId)
     const chunk = dbChunks[i]
+    const transcriptionIdentity = await buildTranscriptionIdentity(chunk.audioPath)
+    if (await canReuseTranscription(chunk.id, transcriptionIdentity.transcriptionInputHash)) {
+      pipelineLog.info('transcription chunk reused', {
+        mediaId, jobId, chunkId: chunk.id, chunkIndex: chunk.index,
+        inputHash: transcriptionIdentity.transcriptionInputHash,
+      })
+      reusedChunks += 1
+      continue
+    }
     await updateChunkStatus(chunk.id, 'PROCESSING')
     await updateJobProgress(jobId, {
       progress: 30 + Math.round((i / totalChunks) * 50),
@@ -99,14 +119,15 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
         chunkId: chunk.id,
         chunkIndex: chunk.index,
       })
-      const result = await transcribeChunk(chunk.audioPath)
-      if (result.segments.length === 0 || !result.text.trim()) {
+      const result = await transcribeChunk(chunk.audioPath, transcriptionIdentity.transcriptionLanguage, transcriptionIdentity.vocabulary)
+      const boundedSegments = clampWhisperSegments(result.segments, Math.max(0, chunk.endSec - chunk.startSec))
+      if (boundedSegments.length === 0 || !result.text.trim()) {
         throw new Error('whisper-cli produced no transcript segments')
       }
       await saveSegments({
         mediaFileId: mediaId,
         chunkId: chunk.id,
-        segments: result.segments.map((segment) => ({
+        segments: boundedSegments.map((segment) => ({
           ...segment,
           start: chunk.startSec + segment.start,
           end: chunk.startSec + segment.end,
@@ -114,13 +135,15 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       })
       const transcriptPath = await saveRawTranscript(mediaId, chunk.index, result.rawOutput)
       await updateChunkTranscriptPath(chunk.id, transcriptPath)
+      await updateChunkTranscriptionMetadata(chunk.id, transcriptionIdentity)
       await updateChunkStatus(chunk.id, 'DONE')
+      transcriptionChanged = true
       pipelineLog.info('transcription chunk completed', {
         mediaId,
         jobId,
         chunkId: chunk.id,
         chunkIndex: chunk.index,
-        segmentsCount: result.segments.length,
+        segmentsCount: boundedSegments.length,
         textLength: result.text.length,
       })
     } catch (err: any) {
@@ -135,8 +158,12 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
       throw new Error(`Transcription failed for chunk ${chunk.index}: ${err.message ?? String(err)}`)
     }
     }
-    await invalidateAfterTranscription(mediaId)
+    if (transcriptionChanged) await invalidateAfterTranscription(mediaId)
+    stageStates.transcription = reusedChunks === totalChunks ? 'reused' : 'completed'
+    await updatePipelineStages(jobId, stageStates)
   } else {
+    stageStates.transcription = 'skipped'
+    await updatePipelineStages(jobId, stageStates)
     pipelineLog.info('transcription stage skipped', { mediaId, jobId })
   }
 
@@ -252,8 +279,37 @@ export async function runPipeline(mediaId: string, jobId: string): Promise<void>
   // 6. Done
   if (requested.has('transcription')) await deleteOriginalIfConfigured(record.sourcePath)
   await updateMediaStatus(mediaId, 'DONE')
-  await updateJobProgress(jobId, { status: 'DONE', progress: 100, currentStep: 'done' })
+  const completedJob = await getJob(jobId)
+  const completedStatus = completedJob?.qualityWarnings.length ? 'DONE_WITH_WARNINGS' : 'DONE'
+  await updateJobProgress(jobId, { status: completedStatus, progress: 100, currentStep: 'done' })
   pipelineLog.info('pipeline completed', { mediaId, jobId })
+}
+
+async function buildTranscriptionIdentity(audioPath: string): Promise<{
+  audioFingerprint: string
+  transcriptionInputHash: string
+  transcriptionModel: string
+  transcriptionLanguage: string
+  transcriptionVersion: string
+  vocabulary: string[]
+}> {
+  const config = loadConfig()
+  const stat = await fs.stat(audioPath)
+  const audioFingerprint = createHash('sha256')
+    .update(`${audioPath}:${stat.size}:${stat.mtimeMs}`)
+    .digest('hex')
+  const transcriptionVersion = 'whisper-transcription-v3'
+  const transcriptionModel = config.whisperModelPath
+  const transcriptionLanguage = config.language || 'ru'
+  const vocabulary = await getWhisperVocabulary()
+  const transcriptionInputHash = createHash('sha256').update(JSON.stringify({
+    audioFingerprint,
+    transcriptionModel,
+    transcriptionLanguage,
+    vocabulary: [...vocabulary].sort(),
+    transcriptionVersion,
+  })).digest('hex')
+  return { audioFingerprint, transcriptionInputHash, transcriptionModel, transcriptionLanguage, transcriptionVersion, vocabulary }
 }
 
 async function deleteOriginalIfConfigured(sourcePath: string): Promise<void> {

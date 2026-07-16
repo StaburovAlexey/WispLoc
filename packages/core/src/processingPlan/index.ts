@@ -8,8 +8,8 @@ const ORDER: ProcessingStage[] = [
   'normalization',
   'fact-extraction',
   'fact-deduplication',
-  'summary',
   'tasks',
+  'summary',
   'term-discovery',
 ]
 
@@ -18,8 +18,8 @@ export async function buildProcessingPlan(mediaFileId: string, requestedStages: 
   const [media, transcriptCount, factCount, mergedFactCount, summaryCount, taskCount, termCount] = await Promise.all([
     getMediaRecordRaw(mediaFileId),
     prisma.transcriptSegment.count({ where: { mediaFileId } }),
-    prisma.atomicFactRecord.count({ where: { mediaFileId, validationStatus: 'valid' } }),
-    prisma.mergedFactRecord.count({ where: { mediaFileId } }),
+    prisma.atomicFactRecord.count({ where: { mediaFileId, validationStatus: 'valid', processingJob: { status: { in: ['DONE', 'DONE_WITH_WARNINGS'] } } } }),
+    prisma.mergedFactRecord.count({ where: { mediaFileId, processingJob: { status: { in: ['DONE', 'DONE_WITH_WARNINGS'] } } } }),
     prisma.summary.count({ where: { mediaFileId, kind: 'final' } }),
     prisma.extractedTask.count({ where: { mediaFileId } }),
     prisma.termSuggestion.count({ where: { mediaFileId } }),
@@ -81,33 +81,45 @@ export function resolveProcessingStages(
 
 export async function invalidateAfterTranscription(mediaFileId: string): Promise<void> {
   const prisma = getPrisma()
+  const replaceableTaskIds = await findReplaceableTaskIds(mediaFileId)
   await prisma.$transaction([
     prisma.atomicFactRecord.deleteMany({ where: { mediaFileId } }),
     prisma.mergedFactRecord.deleteMany({ where: { mediaFileId } }),
     prisma.summaryBatchCheckpoint.deleteMany({ where: { mediaFileId } }),
     prisma.summary.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
-    prisma.extractedTask.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
+    prisma.extractedTask.deleteMany({ where: { id: { in: replaceableTaskIds } } }),
     prisma.termSuggestion.deleteMany({ where: { mediaFileId, status: 'PROPOSED' } }),
   ])
 }
 
 export async function invalidateAfterFactExtraction(mediaFileId: string, processingJobId: string): Promise<void> {
   const prisma = getPrisma()
+  const replaceableTaskIds = await findReplaceableTaskIds(mediaFileId)
+  void processingJobId
   await prisma.$transaction([
-    prisma.atomicFactRecord.deleteMany({ where: { mediaFileId, processingJobId: { not: processingJobId } } }),
-    prisma.mergedFactRecord.deleteMany({ where: { mediaFileId } }),
-    prisma.summaryBatchCheckpoint.deleteMany({ where: { mediaFileId } }),
-    prisma.summary.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
-    prisma.extractedTask.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
+    prisma.extractedTask.deleteMany({ where: { id: { in: replaceableTaskIds } } }),
   ])
 }
 
 export async function invalidateAfterFactDeduplication(mediaFileId: string, processingJobId: string): Promise<void> {
   const prisma = getPrisma()
+  const replaceableTaskIds = await findReplaceableTaskIds(mediaFileId)
+  void processingJobId
   await prisma.$transaction([
-    prisma.mergedFactRecord.deleteMany({ where: { mediaFileId, processingJobId: { not: processingJobId } } }),
-    prisma.summaryBatchCheckpoint.deleteMany({ where: { mediaFileId } }),
-    prisma.summary.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
-    prisma.extractedTask.deleteMany({ where: { mediaFileId, pipelineVersion: 'evidence-v2' } }),
+    prisma.extractedTask.deleteMany({ where: { id: { in: replaceableTaskIds } } }),
   ])
+}
+
+async function findReplaceableTaskIds(mediaFileId: string): Promise<string[]> {
+  const prisma = getPrisma()
+  const candidates = await prisma.extractedTask.findMany({
+    where: { mediaFileId, pipelineVersion: 'evidence-v2', status: 'DRAFT', externalTasks: { none: {} } },
+    select: { id: true, title: true, description: true, generatedTitle: true, generatedDescription: true },
+  })
+  return candidates.filter((task) => (
+    task.generatedTitle !== null
+    && task.generatedDescription !== null
+    && task.title === task.generatedTitle
+    && task.description === task.generatedDescription
+  )).map((task) => task.id)
 }

@@ -2,6 +2,7 @@ import { execa } from 'execa'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { loadConfig } from '../config'
+import { listActiveDictionaryEntries } from '../dictionary'
 import { createLogger } from '../logger'
 
 const whisperLog = createLogger('whisper', 'worker.log')
@@ -27,17 +28,22 @@ export interface WhisperResult {
 export async function transcribeChunk(
   wavPath: string,
   language?: string,
+  vocabulary?: string[],
 ): Promise<WhisperResult> {
   const config = loadConfig()
   const startedAt = Date.now()
   const selectedLanguage = language || config.language || 'ru'
+  const promptTerms = vocabulary ?? await getWhisperVocabulary()
 
   const args = [
     '-m', config.whisperModelPath,
     '-f', wavPath,
     '-l', selectedLanguage,
+    '--split-on-word',
     '--output-json',
   ]
+  const prompt = promptTerms.join(', ').slice(0, 1_000).trim()
+  if (prompt) args.push('--prompt', prompt)
 
   let stdout: string
   try {
@@ -74,6 +80,25 @@ export async function transcribeChunk(
     usedSidecarOutput: Boolean(fileOutput),
   })
   return parsed
+}
+
+export async function getWhisperVocabulary(): Promise<string[]> {
+  const config = loadConfig()
+  const dictionary = await listActiveDictionaryEntries()
+  return [...new Set([
+    ...(config.customVocabulary ?? []),
+    ...dictionary.flatMap((entry) => [entry.canonical, ...entry.aliases]),
+  ].map((term) => term.trim()).filter(Boolean))].slice(0, 80)
+}
+
+export function clampWhisperSegments(segments: WhisperSegment[], durationSec: number): WhisperSegment[] {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return []
+  return segments.flatMap((segment) => {
+    const start = Math.max(0, Math.min(durationSec, segment.start))
+    const end = Math.max(start, Math.min(durationSec, segment.end))
+    if (!segment.text.trim() || start >= durationSec || end <= start) return []
+    return [{ ...segment, start, end }]
+  })
 }
 
 /**

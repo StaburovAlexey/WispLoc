@@ -1,4 +1,4 @@
-import type { PipelineVersion, ProcessingJobDto, ProcessingStage, JobStatus } from '@wisploc/shared'
+import type { PipelineVersion, ProcessingJobDto, ProcessingStage, ProcessingStageStatus, JobStatus } from '@wisploc/shared'
 import { getPrisma } from '../database'
 
 const prisma = getPrisma()
@@ -14,6 +14,8 @@ export interface JobProgressEvent {
   progress: number
   currentStep?: string
   error?: string
+  stageStates?: Record<string, ProcessingStageStatus>
+  qualityWarnings?: string[]
 }
 
 export async function createJob(
@@ -83,8 +85,17 @@ export async function updateJobProgress(
       progress: job.progress,
       currentStep: job.currentStep ?? undefined,
       error: job.errorMessage ?? undefined,
+      stageStates: readStageStates(job.stagesJson),
+      qualityWarnings: readStringArray(job.qualityWarningsJson),
     })
   }
+}
+
+export async function setJobQualityWarnings(id: string, warnings: string[]): Promise<void> {
+  await prisma.processingJob.update({
+    where: { id },
+    data: { qualityWarningsJson: JSON.stringify([...new Set(warnings)].filter(Boolean)) },
+  })
 }
 
 export async function retryJob(id: string): Promise<void> {
@@ -109,6 +120,7 @@ export async function retryJob(id: string): Promise<void> {
     data: {
       status: 'PENDING',
       errorMessage: null,
+      qualityWarningsJson: '[]',
       progress: 0,
       currentStep: null,
     },
@@ -153,15 +165,35 @@ function toDto(record: any): ProcessingJobDto {
     progress: record.progress,
     currentStep: record.currentStep,
     errorMessage: record.errorMessage,
+    qualityWarnings: readStringArray(record.qualityWarningsJson),
     startedAt: record.startedAt?.toISOString() ?? null,
     finishedAt: record.finishedAt?.toISOString() ?? null,
     durationMs: record.durationMs ?? null,
     pipelineVersion: record.pipelineVersion ?? 'legacy-v1',
     requestedStages: readRequestedStages(record.requestedStagesJson),
+    stageStates: readStageStates(record.stagesJson),
     useDictionary: record.useDictionary ?? false,
     discoverTerms: record.discoverTerms ?? false,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+function readStringArray(value: string | null | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value ?? '[]')
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function readStageStates(value: string | null | undefined): Record<string, ProcessingStageStatus> {
+  try {
+    const parsed: unknown = JSON.parse(value ?? '{}')
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, ProcessingStageStatus> : {}
+  } catch {
+    return {}
   }
 }
 
@@ -175,5 +207,5 @@ function readRequestedStages(value: string | null | undefined): ProcessingStage[
 }
 
 function defaultStages(): ProcessingStage[] {
-  return ['transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'summary', 'tasks']
+  return ['transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'tasks', 'summary']
 }
