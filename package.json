@@ -6,7 +6,7 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter @wisploc/web build && concurrently --kill-others-on-fail --names api,worker,web --prefix-colors blue,magenta,green \"pnpm --filter @wisploc/api dev\" \"pnpm --filter @wisploc/worker dev\" \"pnpm --filter @wisploc/web dev\"",
+    "dev": "pnpm build && concurrently --kill-others-on-fail --names api,worker,web --prefix-colors blue,magenta,green \"pnpm --filter @wisploc/api dev\" \"pnpm --filter @wisploc/worker dev\" \"pnpm --filter @wisploc/web dev\"",
     "dev:all": "pnpm -r dev",
     "lint": "eslint .",
     "pack:app": "pnpm build && tsx scripts/pack-app.ts",
@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:e2e": "pnpm --filter @wisploc/web build && playwright test",
     "test:smoke": "tsx scripts/smoke-clean-home.ts",
+    "evaluate:evidence": "tsx scripts/evaluate-evidence.ts",
     "typecheck": "pnpm -r typecheck",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
