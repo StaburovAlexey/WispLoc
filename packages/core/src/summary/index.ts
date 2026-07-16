@@ -96,6 +96,11 @@ function summaryRecordToDto(record: any) {
     openQuestions: parseJsonSafe(record.openQuestionsJson) ?? [],
     actionItems: parseJsonSafe(record.actionItemsJson) ?? [],
     modelName: record.modelName,
+    pipelineVersion: record.pipelineVersion ?? 'legacy-v1',
+    promptVersion: record.promptVersion ?? null,
+    evidenceSummary: parseJsonSafe(record.sourceItemsJson),
+    problems: parseJsonSafe(record.problemsJson) ?? [],
+    proposals: parseJsonSafe(record.proposalsJson) ?? [],
     createdAt: record.createdAt.toISOString(),
   }
 }

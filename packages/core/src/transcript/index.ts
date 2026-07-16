@@ -12,12 +12,17 @@ export interface SaveSegmentsInput {
 
 /** Persist transcript segments for a chunk. */
 export async function saveSegments(input: SaveSegmentsInput) {
-  const records = input.segments.map((seg) => ({
+  if (input.chunkId) {
+    await prisma.transcriptSegment.deleteMany({ where: { mediaFileId: input.mediaFileId, chunkId: input.chunkId } })
+  }
+  const existingCount = await prisma.transcriptSegment.count({ where: { mediaFileId: input.mediaFileId } })
+  const records = input.segments.map((seg, index) => ({
     mediaFileId: input.mediaFileId,
     chunkId: input.chunkId ?? null,
     startSec: seg.start,
     endSec: seg.end,
     text: seg.text,
+    sequence: existingCount + index,
   }))
 
   // Insert in batches
@@ -42,16 +47,20 @@ export async function getChunkTranscriptText(chunkId: string): Promise<string> {
     where: { chunkId },
     orderBy: { startSec: 'asc' },
   })
-  return segments.map((s) => s.text).join(' ')
+  return segments.map((s) => s.normalizedText ?? s.text).join(' ')
 }
 
 /** Build the full transcript text from segments. */
 export async function getFullTranscript(mediaFileId: string): Promise<{
   text: string
   segments: Array<{
+    id: string
     startSec: number
     endSec: number
     text: string
+    originalText: string
+    normalizedText: string | null
+    sequence: number
     speaker: string | null
   }>
 }> {
@@ -62,9 +71,13 @@ export async function getFullTranscript(mediaFileId: string): Promise<{
   return {
     text,
     segments: segments.map((s) => ({
+      id: s.id,
       startSec: s.startSec,
       endSec: s.endSec,
       text: s.text,
+      originalText: s.text,
+      normalizedText: s.normalizedText,
+      sequence: s.sequence,
       speaker: s.speaker,
     })),
   }

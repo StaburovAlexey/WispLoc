@@ -456,7 +456,11 @@ async function ensureOllamaServer(command: string): Promise<boolean> {
   if (await binaryWorks(command, ['list'], 10_000)) return true
 
   try {
-    const child = execa(command, ['serve'], { detached: true, stdio: 'ignore' })
+    const child = execa(command, ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+      env: { OLLAMA_NUM_PARALLEL: '1', OLLAMA_MAX_LOADED_MODELS: '1' },
+    })
     writeManagedOllamaPid(child.pid)
     setupLog.info('ollama server started', { command, pid: child.pid })
     child.unref()

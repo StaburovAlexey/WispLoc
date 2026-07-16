@@ -1,6 +1,8 @@
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { Agent } from 'undici'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import type { ZodType } from 'zod'
 import { loadConfig } from '../config'
 import { writeManagedOllamaPid } from './runtime'
 import { createLogger } from '../logger'
@@ -14,18 +16,30 @@ import {
 } from '@wisploc/shared'
 
 const OLLAMA_CHAT_URL = '/api/chat'
-const OLLAMA_REQUEST_TIMEOUT_MS = 600_000
+const OLLAMA_INACTIVITY_TIMEOUT_MS = 180_000
+const OLLAMA_DISPATCHER = new Agent({
+  headersTimeout: OLLAMA_INACTIVITY_TIMEOUT_MS,
+  bodyTimeout: OLLAMA_INACTIVITY_TIMEOUT_MS,
+})
 const MAX_CHUNK_TRANSCRIPT_CHARS = 8_000
 const MAX_FINAL_SUMMARIES_CHARS = 12_000
 const MAX_TASK_EXTRACTION_CHARS = 12_000
 const NO_SPEECH_SUMMARY = 'Содержательной речи не обнаружено.'
 const ollamaLog = createLogger('ollama', 'worker.log')
+let ollamaQueue: Promise<void> = Promise.resolve()
 
 type OllamaMode =
   | 'chunk-summary'
   | 'final-summary'
   | 'task-extraction'
   | 'json-repair'
+  | 'fact-extraction'
+  | 'fact-repair'
+  | 'fact-deduplication'
+  | 'evidence-task-extraction'
+  | 'task-deduplication'
+  | 'evidence-final-summary'
+  | 'term-discovery'
 
 const OLLAMA_OPTIONS_BY_MODE = {
   'chunk-summary': {
@@ -34,8 +48,9 @@ const OLLAMA_OPTIONS_BY_MODE = {
     top_k: 20,
     min_p: 0,
     repeat_penalty: 1.05,
-    num_ctx: 8192,
-    num_predict: 1400,
+    num_ctx: 4096,
+    num_batch: 256,
+    num_predict: 1100,
   },
 
   'final-summary': {
@@ -44,8 +59,9 @@ const OLLAMA_OPTIONS_BY_MODE = {
     top_k: 20,
     min_p: 0,
     repeat_penalty: 1.05,
-    num_ctx: 8192,
-    num_predict: 2200,
+    num_ctx: 4096,
+    num_batch: 256,
+    num_predict: 1800,
   },
 
   'task-extraction': {
@@ -54,8 +70,9 @@ const OLLAMA_OPTIONS_BY_MODE = {
     top_k: 20,
     min_p: 0,
     repeat_penalty: 1.05,
-    num_ctx: 8192,
-    num_predict: 1600,
+    num_ctx: 4096,
+    num_batch: 256,
+    num_predict: 1000,
   },
 
   'json-repair': {
@@ -65,8 +82,16 @@ const OLLAMA_OPTIONS_BY_MODE = {
     min_p: 0,
     repeat_penalty: 1.05,
     num_ctx: 8192,
-    num_predict: 1800,
+    num_batch: 256,
+    num_predict: 1200,
   },
+  'fact-extraction': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 1000 },
+  'fact-repair': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 700 },
+  'fact-deduplication': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 800 },
+  'evidence-task-extraction': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 1000 },
+  'task-deduplication': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 800 },
+  'evidence-final-summary': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 8192, num_batch: 256, num_predict: 1400 },
+  'term-discovery': { temperature: 0, top_p: 0.8, top_k: 20, min_p: 0, repeat_penalty: 1.05, num_ctx: 4096, num_batch: 256, num_predict: 800 },
 } satisfies Record<OllamaMode, Record<string, number>>
 
 interface OllamaChatInput {
@@ -75,25 +100,37 @@ interface OllamaChatInput {
   mode: OllamaMode
   jsonSchema: unknown
   numPredict?: number
+  think?: boolean
+  signal?: AbortSignal
+  requestId?: string
 }
 
 interface OllamaChatRequest {
   model: string
   messages: Array<{ role: string; content: string }>
-  stream: false
-  think: false
+  stream: true
+  think: boolean
   keep_alive: '5m'
   format: unknown
   options: Record<string, number>
 }
 
-const chunkSummaryJsonSchema = zodToJsonSchema(chunkSummarySchema)
-const finalSummaryJsonSchema = zodToJsonSchema(finalSummarySchema)
-const taskExtractionJsonSchema = zodToJsonSchema(taskExtractionSchema)
+// Ollama turns JSON Schema into a llama grammar. Some bundled llama-server
+// versions reject validation keywords such as minLength and maxItems even
+// though they are valid JSON Schema. Keep the transport schema portable and
+// let Zod remain the authoritative validator after generation.
+const chunkSummaryJsonSchema = toOllamaJsonSchema(chunkSummarySchema)
+const finalSummaryJsonSchema = toOllamaJsonSchema(finalSummarySchema)
+const taskExtractionJsonSchema = toOllamaJsonSchema(taskExtractionSchema)
 
 async function ollamaChat(input: OllamaChatInput): Promise<string> {
+  return enqueueOllamaRequest(() => runOllamaChat(input))
+}
+
+async function runOllamaChat(input: OllamaChatInput): Promise<string> {
   const config = loadConfig()
   const startedAt = Date.now()
+  input.signal?.throwIfAborted()
 
   await ensureOllamaReady(config.ollamaHost)
 
@@ -109,14 +146,24 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
   const body: OllamaChatRequest = {
     model: config.llmModel || DEFAULTS.llmModel,
     messages,
-    stream: false,
-    think: false,
+    stream: true,
+    think: input.think ?? false,
     keep_alive: '5m',
     format: input.jsonSchema,
     options: {
       ...baseOptions,
       num_predict: input.numPredict ?? baseOptions.num_predict,
     },
+  }
+
+  const inactivityController = new AbortController()
+  let inactivityTimer: ReturnType<typeof setTimeout> | undefined
+  const resetInactivityTimer = () => {
+    if (inactivityTimer) clearTimeout(inactivityTimer)
+    inactivityTimer = setTimeout(() => {
+      inactivityController.abort(new Error(`Ollama produced no data for ${Math.round(OLLAMA_INACTIVITY_TIMEOUT_MS / 1000)}s`))
+    }, OLLAMA_INACTIVITY_TIMEOUT_MS)
+    inactivityTimer.unref()
   }
 
   let response: Response
@@ -127,16 +174,23 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
       ollamaHost: config.ollamaHost,
       numPredict: body.options.num_predict,
       numCtx: body.options.num_ctx,
+      requestId: input.requestId,
+      thinking: body.think,
     })
-    response = await fetch(`${config.ollamaHost}${OLLAMA_CHAT_URL}`, {
+    resetInactivityTimer()
+    const requestInit: RequestInit & { dispatcher: Agent } = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(OLLAMA_REQUEST_TIMEOUT_MS),
-    })
+      dispatcher: OLLAMA_DISPATCHER,
+      signal: input.signal
+        ? AbortSignal.any([input.signal, inactivityController.signal])
+        : inactivityController.signal,
+    }
+    response = await fetch(`${config.ollamaHost}${OLLAMA_CHAT_URL}`, requestInit)
   } catch (err: any) {
-    const reason = err.name === 'TimeoutError'
-      ? `request timed out after ${Math.round(OLLAMA_REQUEST_TIMEOUT_MS / 1000)}s`
+    const reason = inactivityController.signal.aborted
+      ? inactivityController.signal.reason?.message ?? `no response data for ${Math.round(OLLAMA_INACTIVITY_TIMEOUT_MS / 1000)}s`
       : err.cause?.message ?? err.message ?? String(err)
     ollamaLog.error('ollama chat request failed', {
       mode: input.mode,
@@ -144,6 +198,7 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
       ollamaHost: config.ollamaHost,
       error: err,
     })
+    if (inactivityTimer) clearTimeout(inactivityTimer)
     throw new Error(`Ollama request failed at ${config.ollamaHost}: ${reason}`)
   }
 
@@ -155,23 +210,180 @@ async function ollamaChat(input: OllamaChatInput): Promise<string> {
       status: response.status,
       bodyPreview: text.slice(0, 500),
     })
+    if (inactivityTimer) clearTimeout(inactivityTimer)
     throw new Error(`Ollama API error ${response.status}: ${text.slice(0, 500)}`)
   }
 
-  const data = await response.json() as {
-    message?: {
-      content?: string
-    }
+  let streamed
+  try {
+    streamed = await readOllamaStream(response, resetInactivityTimer)
+  } catch (err: any) {
+    const reason = inactivityController.signal.aborted
+      ? inactivityController.signal.reason?.message ?? `no response data for ${Math.round(OLLAMA_INACTIVITY_TIMEOUT_MS / 1000)}s`
+      : err.cause?.message ?? err.message ?? String(err)
+    ollamaLog.error('ollama chat stream failed', {
+      mode: input.mode,
+      model: body.model,
+      ollamaHost: config.ollamaHost,
+      error: err,
+    })
+    throw new Error(`Ollama request failed at ${config.ollamaHost}: ${reason}`)
+  } finally {
+    if (inactivityTimer) clearTimeout(inactivityTimer)
   }
 
-  const content = stripThinkBlocks(data.message?.content ?? '')
+  const content = stripThinkBlocks(streamed.content)
+  const tokensPerSecond = streamed.evalCount && streamed.evalDuration
+    ? streamed.evalCount / (streamed.evalDuration / 1_000_000_000)
+    : undefined
   ollamaLog.info('ollama chat completed', {
     mode: input.mode,
     model: body.model,
     durationMs: Date.now() - startedAt,
     responseLength: content.length,
+    doneReason: streamed.doneReason,
+    promptEvalCount: streamed.promptEvalCount,
+    evalCount: streamed.evalCount,
+    evalRatePerSecond: tokensPerSecond === undefined ? undefined : Number(tokensPerSecond.toFixed(2)),
   })
   return content
+}
+
+async function readOllamaStream(response: Response, onData: () => void): Promise<{
+  content: string
+  doneReason?: string
+  promptEvalCount?: number
+  evalCount?: number
+  evalDuration?: number
+}> {
+  if (!response.body) throw new Error('Ollama returned an empty response stream')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let content = ''
+  let metrics: { doneReason?: string; promptEvalCount?: number; evalCount?: number; evalDuration?: number } = {}
+
+  const consumeLine = (line: string) => {
+    if (!line.trim()) return
+    const chunk = JSON.parse(line) as {
+      message?: { content?: string }
+      error?: string
+      done_reason?: string
+      prompt_eval_count?: number
+      eval_count?: number
+      eval_duration?: number
+    }
+    if (chunk.error) throw new Error(chunk.error)
+    content += chunk.message?.content ?? ''
+    metrics = {
+      doneReason: chunk.done_reason ?? metrics.doneReason,
+      promptEvalCount: chunk.prompt_eval_count ?? metrics.promptEvalCount,
+      evalCount: chunk.eval_count ?? metrics.evalCount,
+      evalDuration: chunk.eval_duration ?? metrics.evalDuration,
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    onData()
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) consumeLine(line)
+  }
+  buffer += decoder.decode()
+  consumeLine(buffer)
+  return { content, ...metrics }
+}
+
+function enqueueOllamaRequest<T>(request: () => Promise<T>): Promise<T> {
+  const result = ollamaQueue.then(request, request)
+  ollamaQueue = result.then(() => undefined, () => undefined)
+  return result
+}
+
+export async function structuredOllamaChat<T>(input: {
+  prompt: string
+  systemPrompt: string
+  mode: Extract<OllamaMode, 'fact-extraction' | 'fact-repair' | 'fact-deduplication' | 'evidence-task-extraction' | 'task-deduplication' | 'evidence-final-summary' | 'term-discovery'>
+  schema: ZodType<T>
+  label: string
+  think?: boolean
+  signal?: AbortSignal
+  requestId?: string
+  numPredict?: number
+}): Promise<T> {
+  const jsonSchema = toOllamaJsonSchema(input.schema)
+  const raw = await ollamaChat({
+    prompt: input.prompt,
+    systemPrompt: input.systemPrompt,
+    mode: input.mode,
+    jsonSchema,
+    think: input.think,
+    signal: input.signal,
+    requestId: input.requestId,
+    numPredict: input.numPredict,
+  })
+  return parseValidateOrRepair(raw, input.schema, jsonSchema, input.label, {
+    signal: input.signal,
+    requestId: input.requestId,
+  })
+}
+
+type JsonSchemaRecord = Record<string, unknown>
+
+function toOllamaJsonSchema(schema: ZodType<unknown>): JsonSchemaRecord {
+  const generated = zodToJsonSchema(schema) as JsonSchemaRecord
+  return simplifyJsonSchemaForOllama(generated, generated) as JsonSchemaRecord
+}
+
+/**
+ * Use only the JSON Schema grammar features supported consistently by the
+ * embedded Ollama runtime. Zod still checks bounds, refinements and unknown
+ * keys before anything is persisted.
+ */
+function simplifyJsonSchemaForOllama(value: unknown, root: JsonSchemaRecord): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => simplifyJsonSchemaForOllama(item, root))
+  }
+
+  if (!value || typeof value !== 'object') return value
+
+  const record = value as JsonSchemaRecord
+  const reference = typeof record.$ref === 'string' ? resolveLocalSchemaRef(record.$ref, root) : undefined
+  if (reference) return simplifyJsonSchemaForOllama(reference, root)
+
+  const result: JsonSchemaRecord = {}
+  if (typeof record.type === 'string') result.type = record.type
+  if (Array.isArray(record.enum)) result.enum = record.enum
+
+  if (record.properties && typeof record.properties === 'object' && !Array.isArray(record.properties)) {
+    result.properties = Object.fromEntries(
+      Object.entries(record.properties as JsonSchemaRecord)
+        .map(([key, property]) => [key, simplifyJsonSchemaForOllama(property, root)]),
+    )
+  }
+
+  if (Array.isArray(record.required)) {
+    result.required = record.required.filter((key): key is string => typeof key === 'string')
+  }
+
+  if (record.items !== undefined) {
+    result.items = simplifyJsonSchemaForOllama(record.items, root)
+  }
+
+  return result
+}
+
+function resolveLocalSchemaRef(reference: string, root: JsonSchemaRecord): unknown {
+  if (!reference.startsWith('#/')) return undefined
+
+  return reference.slice(2).split('/').reduce<unknown>((current, key) => {
+    if (!current || typeof current !== 'object') return undefined
+    return (current as JsonSchemaRecord)[key.replace(/~1/g, '/').replace(/~0/g, '~')]
+  }, root)
 }
 
 async function ensureOllamaReady(ollamaHost: string): Promise<void> {
@@ -181,7 +393,7 @@ async function ensureOllamaReady(ollamaHost: string): Promise<void> {
   const child = spawn(ollamaBin, ['serve'], {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, OLLAMA_HOST: ollamaHost },
+    env: { ...process.env, OLLAMA_HOST: ollamaHost, OLLAMA_NUM_PARALLEL: '1', OLLAMA_MAX_LOADED_MODELS: '1' },
   })
 
   try {
@@ -249,6 +461,7 @@ async function parseValidateOrRepair<T>(
   schema: { parse: (data: unknown) => T },
   jsonSchema: unknown,
   label: string,
+  options: { signal?: AbortSignal; requestId?: string } = {},
 ): Promise<T> {
   try {
     return parseAndValidate(raw, schema, label)
@@ -264,6 +477,8 @@ async function parseValidateOrRepair<T>(
         rawResponse: raw,
         validationError,
       }),
+      signal: options.signal,
+      requestId: options.requestId ? `${options.requestId}:json-repair` : undefined,
     })
 
     const repaired = parseAndValidate(repairedRaw, schema, label)
@@ -322,8 +537,21 @@ function normalizeModelShape(parsed: unknown): unknown {
     }
   }
 
-  for (const key of ['keyPoints', 'decisions', 'risks', 'openQuestions', 'actionItems']) {
+  for (const key of ['keyPoints', 'decisions', 'risks', 'problems', 'openQuestions', 'proposals', 'actionItems']) {
     if (key in record && !Array.isArray(record[key])) record[key] = []
+  }
+
+  for (const key of ['keyPoints', 'decisions', 'risks', 'problems', 'openQuestions', 'proposals']) {
+    if (!Array.isArray(record[key])) continue
+    record[key] = record[key].flatMap((item) => {
+      if (!item || typeof item !== 'object' || !('sourceFactIds' in item)) return [item]
+      const summaryItem = item as Record<string, unknown>
+      const text = typeof summaryItem.text === 'string' ? summaryItem.text.trim() : ''
+      const sourceFactIds = Array.isArray(summaryItem.sourceFactIds)
+        ? [...new Set(summaryItem.sourceFactIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))]
+        : []
+      return text && sourceFactIds.length > 0 ? [{ ...summaryItem, text, sourceFactIds }] : []
+    })
   }
 
   if (Array.isArray(record.actionItems)) {

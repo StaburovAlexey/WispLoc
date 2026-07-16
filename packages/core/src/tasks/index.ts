@@ -108,7 +108,21 @@ function toDto(record: any) {
     dueDateHint: record.dueDateHint,
     confidence: record.confidence,
     status: record.status,
+    pipelineVersion: record.pipelineVersion ?? 'legacy-v1',
+    sourceFactIds: parseArray(record.sourceFactIdsJson),
+    evidence: parseArray(record.evidenceJson),
+    mergedCandidateIds: parseArray(record.mergedCandidateIdsJson),
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+  }
+}
+
+function parseArray(value: string | null | undefined): unknown[] {
+  if (!value) return []
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
 }

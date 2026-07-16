@@ -97,6 +97,12 @@ export async function clearProcessedResults(): Promise<MaintenanceResult> {
   await fs.mkdir(PATHS.chunks, { recursive: true })
 
   await prisma.createdExternalTask.deleteMany()
+  await prisma.termSuggestion.deleteMany()
+  await prisma.taskCandidateRecord.deleteMany()
+  await prisma.summaryBatchCheckpoint.deleteMany()
+  await prisma.mergedFactRecord.deleteMany()
+  await prisma.atomicFactRecord.deleteMany()
+  await prisma.evidenceTranscriptChunk.deleteMany()
   await prisma.extractedTask.deleteMany()
   await prisma.summary.deleteMany()
   await prisma.transcriptSegment.deleteMany()
@@ -126,6 +132,13 @@ export async function resetAllLocalData(): Promise<MaintenanceResult> {
   const skipped: string[] = []
 
   await prisma.createdExternalTask.deleteMany()
+  await prisma.termSuggestion.deleteMany()
+  await prisma.taskCandidateRecord.deleteMany()
+  await prisma.summaryBatchCheckpoint.deleteMany()
+  await prisma.mergedFactRecord.deleteMany()
+  await prisma.atomicFactRecord.deleteMany()
+  await prisma.evidenceTranscriptChunk.deleteMany()
+  await prisma.dictionaryEntry.deleteMany()
   await prisma.extractedTask.deleteMany()
   await prisma.integrationTarget.deleteMany()
   await prisma.integrationAccount.deleteMany()

@@ -1,4 +1,4 @@
-import type { ProcessingJobDto, JobStatus } from '@wisploc/shared'
+import type { PipelineVersion, ProcessingJobDto, ProcessingStage, JobStatus } from '@wisploc/shared'
 import { getPrisma } from '../database'
 
 const prisma = getPrisma()
@@ -19,6 +19,11 @@ export interface JobProgressEvent {
 export async function createJob(
   mediaFileId: string,
   type: string,
+  options: {
+    pipelineVersion?: PipelineVersion
+    requestedStages?: ProcessingStage[]
+    useDictionary?: boolean
+  } = {},
 ): Promise<ProcessingJobDto> {
   const record = await prisma.processingJob.create({
     data: {
@@ -26,6 +31,10 @@ export async function createJob(
       type,
       status: 'PENDING',
       progress: 0,
+      pipelineVersion: options.pipelineVersion ?? 'legacy-v1',
+      requestedStagesJson: JSON.stringify(options.requestedStages ?? defaultStages()),
+      useDictionary: options.useDictionary ?? false,
+      discoverTerms: options.requestedStages?.includes('term-discovery') ?? false,
     },
   })
   return toDto(record)
@@ -147,7 +156,24 @@ function toDto(record: any): ProcessingJobDto {
     startedAt: record.startedAt?.toISOString() ?? null,
     finishedAt: record.finishedAt?.toISOString() ?? null,
     durationMs: record.durationMs ?? null,
+    pipelineVersion: record.pipelineVersion ?? 'legacy-v1',
+    requestedStages: readRequestedStages(record.requestedStagesJson),
+    useDictionary: record.useDictionary ?? false,
+    discoverTerms: record.discoverTerms ?? false,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
+}
+
+function readRequestedStages(value: string | null | undefined): ProcessingStage[] {
+  try {
+    const parsed = JSON.parse(value ?? '[]')
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed as ProcessingStage[] : defaultStages()
+  } catch {
+    return defaultStages()
+  }
+}
+
+function defaultStages(): ProcessingStage[] {
+  return ['transcription', 'normalization', 'fact-extraction', 'fact-deduplication', 'summary', 'tasks']
 }
